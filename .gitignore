@@ -1,0 +1,53 @@
+# Python-specific ignores
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.whl
+
+# Virtual environments
+venv/
+env/
+.venv/
+.env/
+
+# IDE and editor files
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+*.swp
+*~
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+
+# Testing and coverage
+.coverage
+coverage.xml
+*.cover
+.pytest_cache/
+
+# Logs and temporary files
+*.log
+*.tmp
+temp/
+
+# Sensitive data (if any)
+*.env
+*.key
+*.pem
+*.secret
+
+# Jupyter notebooks (if used)
+*.ipynb_checkpoints/
+
+# Project specific
+output/
+config.json
+*.csv
