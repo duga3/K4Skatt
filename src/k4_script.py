@@ -8,14 +8,7 @@ from dataclasses import dataclass
 from contextlib import contextmanager
 from datetime import datetime
 
-# Import SRU generator module
-try:
-    from sru_generator import generate_sru_files
-except ImportError:
-    # If sru_generator.py is in the same directory but not installed
-    import sys
-    sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-    from sru_generator import generate_sru_files
+from sru_generator import generate_sru_files
 
 # Configure logging
 logging.basicConfig(level=logging.INFO, format='%(message)s')
