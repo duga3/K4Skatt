@@ -1,0 +1,3 @@
+"DateTime","Buy/Sell","Open/CloseIndicator","AssetClass","Description","Quantity","CostBasis","Proceeds","CurrencyPrimary","IBCommission","TradePrice","FifoPnlRealized","Notes/Codes","Symbol","UnderlyingSymbol","Put/Call"
+"20241113151801","SELL","C","STK","Example stock","-199","-8564.974328","8501.28","USD","-1.278921584","42.72","-64.97325","P","EXS","EXS",""
+"20241113151801","SELL","C","STK","Example stock","-1","-43.040072","42.72","USD","-0.001401616","42.72","-0.321474","P","EXS","EXS",""
