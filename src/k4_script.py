@@ -106,9 +106,10 @@ def load_trades(file_path: str) -> Optional[pd.DataFrame]:
     try:
         df = pd.read_csv(
             file_path,
-            sep=";",
-            decimal=",",
+            sep=",",
+            decimal=".",
             parse_dates=["DateTime"],
+            date_format='%Y%m%d%H%M%S',
             dtype={
                 'Symbol': str,
                 'UnderlyingSymbol': str,
@@ -118,6 +119,7 @@ def load_trades(file_path: str) -> Optional[pd.DataFrame]:
             },
             na_values=['', 'nan', 'NaN', 'NULL']
         )
+        
         # Cut off fractional trades, proceeds are considered regardless.
         df['Quantity'] = df['Quantity'].astype(int)
     except Exception as e:
