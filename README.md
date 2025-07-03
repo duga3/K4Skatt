@@ -37,7 +37,7 @@ pip install pandas
    - Navigate to **Reports** > **Flex Queries** > **Create New Flex Query**.
    - Select **Trades** as the report type.
    - Include at least the following fields:
-     - `DateTime`
+     - `DateTime` *(Configure flex query without date separator)*
      - `Buy/Sell`
      - `Open/CloseIndicator`
      - `AssetClass`
@@ -46,7 +46,7 @@ pip install pandas
      - `CostBasis`
      - `Proceeds`
      - `CurrencyPrimary`
-     - `IBCommission` *(optional; assumed zero if missing)*
+     - `IBCommission`
      - `FifoPnlRealized`
      - `Notes/Codes`
      - `Symbol`
