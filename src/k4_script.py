@@ -1,11 +1,10 @@
 import pandas as pd
-import argparse
 import os
+import argparse
 import logging
 import json
 from typing import Dict, Optional, Set
-from dataclasses import dataclass
-from contextlib import contextmanager
+
 from datetime import datetime
 
 from sru_generator import generate_sru_files
@@ -33,78 +32,23 @@ DEFAULT_CONFIG = {
     }
 }
 
-@dataclass
-class TradeResult:
-    """Structured data class for trade results"""
-    antal: int
-    beteckning: str
-    symbol: str
-    forsaljningspris: int
-    omkostnadsbelopp: int
-    vinst: int
-    forlust: int
-    ibkr_pnl: float
-    diff_vs_ibkr: float
-    
-    def to_dict(self) -> Dict:
-        """Convert to dictionary for DataFrame creation"""
-        return {
-            'Antal': self.antal,
-            'Beteckning': self.beteckning,
-            'Symbol': self.symbol,
-            'Försäljningspris': self.forsaljningspris,
-            'Omkostnadsbelopp': self.omkostnadsbelopp,
-            'Vinst': self.vinst,
-            'Förlust': self.forlust,
-            'IBKRPnL': self.ibkr_pnl,
-            'Diff vs IBKR': self.diff_vs_ibkr
-        }
-
-def load_config(config_path: str) -> Dict:
-    """Load configuration from JSON file, falling back to defaults if needed"""
+def load_config(config_path: str = "config.json") -> Dict:
     config = DEFAULT_CONFIG.copy()
-    
     if os.path.exists(config_path):
         try:
-            with open(config_path, 'r', encoding='utf-8') as f:
-                user_config = json.load(f)
-            config = user_config
-                    
-            logger.info(f"Loaded configuration from {config_path}")
+            with open(config_path, encoding='utf-8') as config_file:
+                config.update(json.load(config_file))
+            logger.info(f"Loaded config from {config_path}")
         except Exception as e:
-            logger.error(f"Error loading config file: {e}")
-            logger.warning("Using default configuration")
+            logger.warning(f"Failed to load config: {e}. Using defaults.")
     else:
-        logger.warning(f"Config file {config_path} not found. Using default configuration.")
-        logger.warning("This will use placeholder personal information. Create a config file with --create-config.")
-        
+        logger.warning(f"No config found at {config_path}. Using defaults.")
     return config
 
-@contextmanager
-def debug_section(title: str):
-    """Context manager for structured debug logging sections"""
-    logger.debug(f"\n=== {title} ===")
-    try:
-        yield
-    finally:
-        logger.debug("=" * (len(title) + 8))
-
-def contains_code(note_str, code: str) -> bool:
-    """Safely check if a string contains a code, handling None/NaN values."""
-    if pd.isna(note_str) or note_str is None:
-        return False
-    return code in str(note_str)
-
-def is_put_option(description) -> bool:
-    """Check if an option is a put option based on its description."""
-    if pd.isna(description):
-        return False
-    return ' P ' in description or description.endswith(' P')
-
 def load_trades(file_path: str) -> Optional[pd.DataFrame]:
-    """Load trades from CSV file with proper type conversion"""
+    """Load trades from CSV file with proper type conversion."""
     try:
-        df = pd.read_csv(
+        trades_df = pd.read_csv(
             file_path,
             sep=",",
             decimal=".",
@@ -115,45 +59,30 @@ def load_trades(file_path: str) -> Optional[pd.DataFrame]:
                 'UnderlyingSymbol': str,
                 'Notes/Codes': str,
                 'AssetClass': str,
-                'Buy/Sell': str
-            },
-            na_values=['', 'nan', 'NaN', 'NULL']
+                'Buy/Sell': str,
+                'Put/Call': str
+            }
         )
-        
-        # Cut off fractional trades, proceeds are considered regardless.
-        df['Quantity'] = df['Quantity'].astype(int)
-    except Exception as e:
-        logger.error(f"Error reading the input file: {e}")
+    except Exception as exc:
+        logger.error(f"Error reading input file: {exc}")
         return None
 
     # Validate required columns
     required_cols = {
         "DateTime", "Open/CloseIndicator", "FifoPnlRealized", "Description", "Quantity",
         "CostBasis", "Proceeds", "CurrencyPrimary", "Buy/Sell",
-        "Notes/Codes", "AssetClass", "Symbol", "UnderlyingSymbol", "IBCommission"
+        "Notes/Codes", "AssetClass", "Symbol", "UnderlyingSymbol", "IBCommission", 'Put/Call'
     }
-    missing_cols = required_cols - set(df.columns)
-    
-    if missing_cols:
-        if len(missing_cols) == 1 and 'IBCommission' in missing_cols:
-            logger.warning(f"Missing IBCommission column, assuming zero commissions")
-            df['IBCommission'] = 0
-        else:
-            logger.error(f"Missing columns in input file: {missing_cols}")
-            return None
+    missing_cols = required_cols - set(trades_df.columns)
 
-    # Standardize column naming
-    df['BuySell'] = df['Buy/Sell']
-    
-    # Add TradeDate column for easier grouping
-    df['TradeDate'] = df['DateTime'].dt.date
-    
-    # Fill NaN values with empty strings for text columns
-    for col in ['Notes/Codes', 'UnderlyingSymbol', 'Symbol']:
-        if col in df.columns:
-            df[col] = df[col].fillna('')
-    
-    return df
+    if missing_cols:
+        logger.error(f"Missing columns: {missing_cols}")
+        return None
+
+    trades_df['Quantity'] = trades_df['Quantity'].astype(int)
+    trades_df['TradeDate'] = trades_df['DateTime'].dt.date
+
+    return trades_df
 
 def load_additional_trades(file_path: str) -> pd.DataFrame:
     """Load pre-calculated trades from a CSV file for SRU file inclusion."""
@@ -162,325 +91,235 @@ def load_additional_trades(file_path: str) -> pd.DataFrame:
     
     try:
         # Read CSV, assuming semicolon separator and comma as decimal (common for Swedish data)
-        df = pd.read_csv(file_path, sep=';', decimal=',')
+        additional_df = pd.read_csv(file_path, sep=';', decimal=',')
         
         # Validate required columns
-        missing_cols = [col for col in required_cols if col not in df.columns]
+        missing_cols = [col for col in required_cols if col not in additional_df.columns]
         if missing_cols:
-            raise ValueError(f"Missing required columns in additional trades CSV: {missing_cols}")
+            raise ValueError(f"Missing required columns: {missing_cols}")
         
         # Add default values for IB-specific or optional columns
-        df['IBKRPnL'] = 0  # Not present in extra trades
-        df['Diff vs IBKR'] = 0  # Not relevant
-        df['BuySell'] = ''  # Default empty string
-        df['TradeDate'] = pd.NaT  # Not required for SRU, set to NaT
-        df['Notes/Codes'] = ''  # Ensures grouping treats them as single trades
+        additional_df['IBKRPnL'] = 0  # Not present in extra trades
+        additional_df['Diff vs IBKR'] = 0  # Not relevant
+        additional_df['Buy/Sell'] = ''  # Default empty string
+        additional_df['TradeDate'] = pd.NaT  # Not required for SRU, set to NaT
+        additional_df['Notes/Codes'] = ''  # Ensures grouping treats them as single trades
         
         # Ensure correct data types
         for col in ['Försäljningspris', 'Omkostnadsbelopp', 'Vinst', 'Förlust','Antal']:
-            df[col] = df[col].astype(int)  # Monetary values as integers per SRU spec
+            additional_df[col] = additional_df[col].astype(int)  # Monetary values as integers per SRU spec
         
-        logger.info(f"Loaded {len(df)} pre-calculated trades from {file_path}")
-        return df
+        logger.info(f"Loaded {len(additional_df)} additional trades from {file_path}")
+        return additional_df
     except Exception as e:
         logger.error(f"Error loading additional trades: {e}")
         raise
 
-def convert_to_sek(df: pd.DataFrame, fx_rates: Dict[str, float]) -> pd.DataFrame:
-    """Convert all monetary values to SEK using vectorized operations"""
-    with debug_section("Converting currencies to SEK"):
-        result_df = df.copy()
-        
-        result_df['FX'] = result_df['CurrencyPrimary'].map(fx_rates)
-        missing_fx = result_df[result_df['FX'].isna()]['CurrencyPrimary'].unique()
-        if len(missing_fx) > 0:
-            raise ValueError(f"No FX rate for currencies: {missing_fx}")
-        
-        result_df['Commission'] = (result_df['IBCommission'].abs() * result_df['FX']).round().astype(int)
-        result_df['CostBasis'] = (result_df['CostBasis'] * result_df['FX']).round().astype(int)
-        result_df['Proceeds'] = (result_df['Proceeds'] * result_df['FX']).round().astype(int)
-        result_df['IBKRPnL'] = result_df['FifoPnlRealized'] * result_df['FX']
-        
-        logger.debug(f"Converted {len(df)} trades to SEK")
-        
-        return result_df
+def convert_to_sek(trades_df: pd.DataFrame, exchange_rates: Dict[str, float]) -> pd.DataFrame:
+    converted_df = trades_df.copy()
+    converted_df['FX'] = converted_df['CurrencyPrimary'].map(exchange_rates)
 
-def create_result_entry(row: pd.Series, forsaljningspris: int, omkostnadsbelopp: int) -> TradeResult:
-    """Create a structured result entry with calculated values"""
-    net_pnl = forsaljningspris - omkostnadsbelopp
-    
-    logger.debug(f"Försäljningspris: {forsaljningspris}")
-    logger.debug(f"Omkostnadsbelopp: {omkostnadsbelopp}")
-    logger.debug(f"Our P&L calculation: {net_pnl}")
-    logger.debug(f"IBKR P&L (for comparison): {row['IBKRPnL']}")
-    logger.debug(f"Difference: {net_pnl - row['IBKRPnL']}")
-    
-    vinst = max(0, net_pnl)
-    forlust = max(0, -net_pnl)
-    
-    diff_vs_ibkr = round(net_pnl - row['IBKRPnL'], 2)
-    
-    return TradeResult(
-        antal=row['Antal'],
-        beteckning=row['Beteckning'],
-        symbol=row['Symbol'],
-        forsaljningspris=forsaljningspris,
-        omkostnadsbelopp=omkostnadsbelopp,
-        vinst=vinst,
-        forlust=forlust,
-        ibkr_pnl=row['IBKRPnL'],
-        diff_vs_ibkr=diff_vs_ibkr
-    )
+    missing_currencies = converted_df[converted_df['FX'].isna()]['CurrencyPrimary'].unique()
+    if len(missing_currencies) > 0:
+        raise ValueError(f"Missing FX rates for: {', '.join(missing_currencies)}")
 
-def process_standard_trade(row: pd.Series) -> TradeResult:
+    for col in ['IBCommission', 'CostBasis', 'Proceeds']:
+        converted_df[col] = (converted_df[col].abs() * converted_df['FX']).round().astype(int)
+
+    converted_df['IBKRPnL'] = (converted_df['FifoPnlRealized'] * converted_df['FX']).round(2)
+    return converted_df
+
+def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbelopp: int) -> Dict:
+    """Create a standardized dict for a processed trade using canonical column names.
+
+    Returns a dict matching the SRU/CSV expected columns so it can be combined
+    with additional pre-calculated trades without later attribute mutation.
+    """
+    net_result = forsaljningspris - omkostnadsbelopp
+    return {
+        'Antal': int(trade_row['Antal']),
+        'Beteckning': trade_row['Beteckning'],
+        'Symbol': trade_row.get('Symbol', ''),
+        'Försäljningspris': int(forsaljningspris),
+        'Omkostnadsbelopp': int(omkostnadsbelopp),
+        'Vinst': int(max(0, net_result)),
+        'Förlust': int(max(0, -net_result)),
+        'IBKRPnL': float(trade_row.get('IBKRPnL', 0.0)),
+        'Diff vs IBKR': round(net_result - float(trade_row.get('IBKRPnL', 0.0)), 2)
+    }
+
+def process_standard_trade(trade_row: pd.Series) -> Dict:
     """Process standard trades (not exercise/assignment)"""
-    is_sell = row['BuySell'] == 'SELL'
+    is_sell = trade_row['Buy/Sell'] == 'SELL'
     
-    forsaljningspris = row['Proceeds'] if is_sell else abs(row['CostBasis'])
-    omkostnadsbelopp = (abs(row['CostBasis']) if is_sell else abs(row['Proceeds'])) + row['Commission']
+    forsaljningspris = trade_row['Proceeds'] if is_sell else abs(trade_row['CostBasis'])
+    omkostnadsbelopp = (abs(trade_row['CostBasis']) if is_sell else abs(trade_row['Proceeds'])) + trade_row['IBCommission']
     
-    return create_result_entry(row, forsaljningspris, omkostnadsbelopp)
+    return make_trade_result(trade_row, forsaljningspris, omkostnadsbelopp)
 
-def find_related_options(df: pd.DataFrame, date, exercise_assigned_set: Set) -> pd.DataFrame:
+def find_related_options(trades_df: pd.DataFrame, trade_date, symbol, exercise_assigned_indices: Set) -> pd.DataFrame:
     """Find related options on the same date with exercise/assignment codes"""
-    mask = (df['TradeDate'] == date) & \
-           (df['AssetClass'] == 'OPT') & \
-           (df.index.isin(exercise_assigned_set))
+    mask = (trades_df['TradeDate'] == trade_date) & \
+           (trades_df['AssetClass'] == 'OPT') & \
+           (trades_df['UnderlyingSymbol'] == symbol) & \
+           (trades_df.index.isin(exercise_assigned_indices))
     
-    return df[mask]
+    return trades_df[mask]
 
-def handle_long_call_exercise(row: pd.Series, related_options: pd.DataFrame) -> TradeResult:
+def get_option_premium(related_options: pd.DataFrame, buy_sell: str, put_call: str, notes_code: str) -> float:
+    """Extract the option premium from related options trades."""
+    filtered_options = related_options[
+        (related_options['Buy/Sell'] == buy_sell) & 
+        (related_options['Notes/Codes'] == notes_code) & 
+        (related_options['Put/Call'] == put_call)
+    ]
+    # Assuming the option exists, take the first match
+    return filtered_options['CostBasis'].iloc[0]
+
+def handle_long_call_exercise(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
     """Handle long call exercise (BUY stock, SELL option with Ex)"""
-    with debug_section("Long Call Exercise Processing"):
-        exercised_calls = related_options[
-            (related_options['BuySell'] == 'SELL') & 
-            (related_options['Notes/Codes'].str.contains('Ex')) & 
-            (~related_options['Description'].apply(is_put_option))
-        ]
-        
-        if not exercised_calls.empty:
-            logger.debug("LONG CALL EXERCISE (BUY stock, SELL option)")
-            forsaljningspris = row['CostBasis']  # Zero or small fee for purchase
-            stock_cost = abs(row['Proceeds'])  # Strike price paid
-            option_premium = abs(exercised_calls['CostBasis'].iloc[0])
-            logger.debug(f"Long call premium: {option_premium}")
-            omkostnadsbelopp = stock_cost + option_premium + row['Commission']
-        else:
-            logger.debug("Unknown call exercise pattern - treating as normal trade")
-            forsaljningspris = row['Proceeds']
-            omkostnadsbelopp = abs(row['CostBasis']) + row['Commission']
-        
-        return create_result_entry(row, forsaljningspris, omkostnadsbelopp)
+    option_premium = abs(get_option_premium(related_options, 'SELL', 'C', 'Ex'))
+    forsaljningspris = stock_trade_row['CostBasis']
+    stock_cost = abs(stock_trade_row['Proceeds'])
+    omkostnadsbelopp = stock_cost + option_premium + stock_trade_row['IBCommission']
+    return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
-def handle_long_put_exercise(row: pd.Series, related_options: pd.DataFrame) -> TradeResult:
+def handle_long_put_exercise(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
     """Handle long put exercise (SELL stock, SELL option with Ex)"""
-    with debug_section("Long Put Exercise Processing"):
-        exercised_puts = related_options[
-            (related_options['BuySell'] == 'SELL') & 
-            (related_options['Notes/Codes'].str.contains('Ex')) & 
-            (related_options['Description'].apply(is_put_option))
-        ]
-        
-        if not exercised_puts.empty:
-            logger.debug("LONG PUT EXERCISE (SELL stock, SELL option)")
-            forsaljningspris = row['Proceeds']  # Amount received
-            stock_cost = abs(row['CostBasis'])  # Cost basis of stock
-            option_premium = abs(exercised_puts['CostBasis'].iloc[0])
-            logger.debug(f"Long put premium: {option_premium}")
-            omkostnadsbelopp = stock_cost + option_premium + row['Commission']
-        else:
-            logger.debug("Unknown put exercise pattern - treating as normal trade")
-            forsaljningspris = row['Proceeds']
-            omkostnadsbelopp = abs(row['CostBasis']) + row['Commission']
-        
-        return create_result_entry(row, forsaljningspris, omkostnadsbelopp)
+    option_premium = abs(get_option_premium(related_options, 'SELL', 'P', 'Ex'))
+    forsaljningspris = stock_trade_row['Proceeds']
+    stock_cost = abs(stock_trade_row['CostBasis'])
+    omkostnadsbelopp = stock_cost + option_premium + stock_trade_row['IBCommission']
+    return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
-def handle_short_call_assignment(row: pd.Series, related_options: pd.DataFrame) -> TradeResult:
+def handle_short_call_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
     """Handle short call assignment (SELL stock, BUY option with A)"""
-    with debug_section("Short Call Assignment Processing"):
-        assigned_calls = related_options[
-            (related_options['BuySell'] == 'BUY') & 
-            (related_options['Notes/Codes'].str.contains('A')) & 
-            (~related_options['Description'].apply(is_put_option))
-        ]
-        
-        if not assigned_calls.empty:
-            logger.debug("SHORT CALL ASSIGNMENT (SELL stock, BUY option)")
-            forsaljningspris = row['Proceeds']  # Amount received
-            stock_cost = abs(row['CostBasis'])  # Cost basis of stock
-            option_premium = assigned_calls['CostBasis'].iloc[0]  # Negative, premium received
-            logger.debug(f"Short call premium: {option_premium}")
-            omkostnadsbelopp = stock_cost - option_premium + row['Commission']
-        else:
-            logger.debug("Unknown call assignment pattern - treating as normal trade")
-            forsaljningspris = row['Proceeds']
-            omkostnadsbelopp = abs(row['CostBasis']) + row['Commission']
-        
-        return create_result_entry(row, forsaljningspris, omkostnadsbelopp)
+    option_premium = get_option_premium(related_options, 'BUY', 'C', 'A')
+    forsaljningspris = stock_trade_row['Proceeds']
+    stock_cost = abs(stock_trade_row['CostBasis'])
+    omkostnadsbelopp = stock_cost - option_premium + stock_trade_row['IBCommission']
+    return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
-def handle_short_put_assignment(row: pd.Series, related_options: pd.DataFrame) -> TradeResult:
+def handle_short_put_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
     """Handle short put assignment (BUY stock, BUY option with A)"""
-    with debug_section("Short Put Assignment Processing"):
-        assigned_puts = related_options[
-            (related_options['BuySell'] == 'BUY') & 
-            (related_options['Notes/Codes'].str.contains('A')) & 
-            (related_options['Description'].apply(is_put_option))
-        ]
-        
-        if not assigned_puts.empty:
-            logger.debug("SHORT PUT ASSIGNMENT (BUY stock, BUY option)")
-            forsaljningspris = row['CostBasis']  # Zero or small fee for purchase
-            stock_cost = abs(row['Proceeds'])  # Strike price paid
-            option_premium = assigned_puts['CostBasis'].iloc[0]  # Negative, premium received
-            logger.debug(f"Short put premium: {option_premium}")
-            omkostnadsbelopp = stock_cost - option_premium + row['Commission']
-        else:
-            logger.debug("Unknown put assignment pattern - treating as normal trade")
-            forsaljningspris = row['Proceeds']
-            omkostnadsbelopp = abs(row['CostBasis']) + row['Commission']
-        
-        return create_result_entry(row, forsaljningspris, omkostnadsbelopp)
+    option_premium = get_option_premium(related_options, 'BUY', 'P', 'A')
+    forsaljningspris = stock_trade_row['CostBasis']
+    stock_cost = abs(stock_trade_row['Proceeds'])
+    omkostnadsbelopp = stock_cost - option_premium + stock_trade_row['IBCommission']
+    return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
-def process_exercise_assignment(row: pd.Series, df: pd.DataFrame, exercise_assigned_set: Set) -> TradeResult:
+def process_exercise_assignment(stock_trade_row: pd.Series, trades_df: pd.DataFrame, exercise_assigned_indices: Set) -> Dict:
     """Process stock trades resulting from option exercise or assignment"""
-    dt = row['TradeDate']
+    trade_date = stock_trade_row['TradeDate']
     
-    with debug_section(f"Processing stock trade date {dt}"):
-        logger.debug(f"Trade: {row['Beteckning']} - {row['BuySell']} - {row['Notes/Codes']}")
-        logger.debug(f"IBKR P&L (for reference only): {row['IBKRPnL']}")
-        
-        related_options = find_related_options(df, dt, exercise_assigned_set)
-        
-        for _, opt in related_options.iterrows():
-            logger.debug(f"Related option: {opt['Description']} - {opt['BuySell']} - {opt['Notes/Codes']} - CostBasis: {opt['CostBasis']}")
-        
-        if row['BuySell'] == 'BUY' and 'Ex' in str(row['Notes/Codes']):
-            return handle_long_call_exercise(row, related_options)
-        elif row['BuySell'] == 'SELL' and 'Ex' in str(row['Notes/Codes']):
-            return handle_long_put_exercise(row, related_options)
-        elif row['BuySell'] == 'SELL' and 'A' in str(row['Notes/Codes']):
-            return handle_short_call_assignment(row, related_options)
-        elif row['BuySell'] == 'BUY' and 'A' in str(row['Notes/Codes']):
-            return handle_short_put_assignment(row, related_options)
-        else:
-            logger.debug(f"Unknown exercise/assignment pattern: {row['BuySell']} - {row['Notes/Codes']}")
-            return process_standard_trade(row)
+    symbol = stock_trade_row['Symbol']
+    related_options = find_related_options(trades_df, trade_date, symbol,exercise_assigned_indices)
+    
+    if stock_trade_row['Buy/Sell'] == 'BUY' and 'Ex' in stock_trade_row['Notes/Codes']:
+        return handle_long_call_exercise(stock_trade_row, related_options)
+    elif stock_trade_row['Buy/Sell'] == 'SELL' and 'Ex' in stock_trade_row['Notes/Codes']:
+        return handle_long_put_exercise(stock_trade_row, related_options)
+    elif stock_trade_row['Buy/Sell'] == 'SELL' and 'A' in stock_trade_row['Notes/Codes']:
+        return handle_short_call_assignment(stock_trade_row, related_options)
+    elif stock_trade_row['Buy/Sell'] == 'BUY' and 'A' in stock_trade_row['Notes/Codes']:
+        return handle_short_put_assignment(stock_trade_row, related_options)
+    else:
+        return process_standard_trade(stock_trade_row)
 
 def process_trades(trades_df: pd.DataFrame) -> pd.DataFrame:
     """Process trades to create the K4 report format"""
-    with debug_section("Processing Trades"):
-        trades_df['Antal'] = trades_df['Quantity'].abs()
-        trades_df['Beteckning'] = trades_df['Description']
-        
-        exercise_assigned_mask = trades_df['Notes/Codes'].str.contains('Ex|A', na=False)
-        exercise_assigned_set = set(trades_df[exercise_assigned_mask].index)
-        
-        mask_close = trades_df['Open/CloseIndicator'] == 'C'
-        mask_profit = trades_df['IBKRPnL'] != 0
-        mask_stock_ex_a = (trades_df['AssetClass'] == 'STK') & exercise_assigned_mask
-        
-        trades_to_report = trades_df[mask_close & (mask_profit | mask_stock_ex_a)].copy()
-        
-        logger.debug(f"Found {len(trades_to_report)} trades to report")
-        
-        skip_mask = (trades_to_report['AssetClass'] == 'OPT') & \
-                    (trades_to_report.index.isin(exercise_assigned_set))
-        trades_to_report = trades_to_report[~skip_mask]
-        
-        logger.debug(f"After skipping exercised/assigned options: {len(trades_to_report)} trades")
-        
-        results = []
-        for idx, row in trades_to_report.iterrows():
-            if row['AssetClass'] == 'STK' and idx in exercise_assigned_set:
-                result = process_exercise_assignment(row, trades_df, exercise_assigned_set)
+    trades_df['Antal'] = trades_df['Quantity'].abs()
+    trades_df['Beteckning'] = trades_df['Description']
+    
+    exercise_assigned_mask = trades_df['Notes/Codes'].isin(['Ex', 'A'])
+    exercise_assigned_indices = set(trades_df[exercise_assigned_mask].index)
+    
+    is_closing_trade = trades_df['Open/CloseIndicator'] == 'C'
+    has_profit_or_loss = trades_df['IBKRPnL'] != 0
+    is_stock_exercise_or_assignment = (trades_df['AssetClass'] == 'STK') & exercise_assigned_mask
+    
+    trades_to_report = trades_df[is_closing_trade & (has_profit_or_loss | is_stock_exercise_or_assignment)].copy()
+    
+    # Skip options that were exercised/assigned (they're handled with stock trades)
+    skip_exercised_options_mask = (trades_to_report['AssetClass'] == 'OPT') & \
+                                   (trades_to_report.index.isin(exercise_assigned_indices))
+    trades_to_report = trades_to_report[~skip_exercised_options_mask]
+    
+    processed_results = []
+    for trade_idx, trade_row in trades_to_report.iterrows():
+        logger.debug(f"Processing trade {trade_idx}: Symbol={trade_row['Symbol']}, Description={trade_row['Description']}, AssetClass={trade_row['AssetClass']}, Notes/Codes={trade_row['Notes/Codes']}")
+        try:
+            if trade_row['AssetClass'] == 'STK' and trade_idx in exercise_assigned_indices:
+                trade_result = process_exercise_assignment(trade_row, trades_df, exercise_assigned_indices)
             else:
-                result = process_standard_trade(row)
+                trade_result = process_standard_trade(trade_row)
             
-            result_dict = result.to_dict()
-            result_dict['BuySell'] = row['BuySell']
-            result_dict['TradeDate'] = row['TradeDate']
-            result_dict['Notes/Codes'] = row['Notes/Codes']
-            
-            results.append(result_dict)
-        
-        result_df = pd.DataFrame(results)
-        
-        return result_df
+            trade_result['Buy/Sell'] = trade_row['Buy/Sell']
+            trade_result['TradeDate'] = trade_row['TradeDate']
+            trade_result['Notes/Codes'] = trade_row['Notes/Codes']
+            processed_results.append(trade_result)
+        except Exception as e:
+            logger.error(f"Error processing trade {trade_idx}: {e}")
+            raise
+    
+    result_df = pd.DataFrame(processed_results)
+    
+    return result_df
 
 def group_partial_executions(processed_df: pd.DataFrame) -> pd.DataFrame:
-    """Group partial executions for reporting purposes"""
-    with debug_section("Grouping Partial Executions"):
-        has_partial = processed_df['Notes/Codes'].str.contains('P', na=False).any()
-        if not has_partial:
-            logger.debug("No partial executions found to group")
-            return processed_df.copy()
-        
-        grouped_df = processed_df.copy()
-        
-        partial_mask = grouped_df['Notes/Codes'].str.contains('P', na=False)
-        logger.debug(f"Found {partial_mask.sum()} trades with 'P' in Notes/Codes")
-        
-        grouped_df['GroupKey'] = grouped_df.apply(
-            lambda row: f"{row['BuySell']}_{row['TradeDate']}_{row['Beteckning']}" 
-            if partial_mask.loc[row.name] else f"single_{row.name}", 
-            axis=1
-        )
-        
-        group_counts = grouped_df['GroupKey'].value_counts()
-        multi_entry_groups = group_counts[group_counts > 1].index
-        logger.debug(f"Found {len(multi_entry_groups)} groups of partial executions")
-        
-        result_rows = []
-        non_grouped_mask = ~grouped_df['GroupKey'].isin(multi_entry_groups)
-        result_rows.append(grouped_df[non_grouped_mask].drop(columns=['GroupKey']))
-        
-        for group_key in multi_entry_groups:
-            group = grouped_df[grouped_df['GroupKey'] == group_key]
-            logger.debug(f"Grouping {len(group)} partial executions for {group_key}")
-            
-            combined_row = group.iloc[0].copy()
-            
-            for field in ['Antal', 'Försäljningspris', 'Omkostnadsbelopp', 'Vinst', 'Förlust', 'IBKRPnL', 'Diff vs IBKR']:
-                if field in group.columns:
-                    combined_row[field] = group[field].sum()
-            
-            combined_row['GroupInfo'] = f"Grouped {len(group)} partial executions"
-            combined_row = combined_row.drop('GroupKey')
-            
-            result_rows.append(pd.DataFrame([combined_row]))
-        
-        result_df = pd.concat(result_rows, ignore_index=True)
-        
-        logger.info(f"Reduced from {len(processed_df)} to {len(result_df)} trades after grouping")
-        
-        return result_df
+    """Group trades by instrument for reporting purposes"""
+    if len(processed_df) == 0:
+        return processed_df
 
-def print_summary(result: pd.DataFrame, report_type: str = "Summary"):
+    # Aggregate trades by instrument
+    aggregation_dict = {
+        'Antal': 'sum',
+        'Försäljningspris': 'sum',
+        'Omkostnadsbelopp': 'sum',
+        'Vinst': 'sum',
+        'Förlust': 'sum',
+        'IBKRPnL': 'sum',
+        'Diff vs IBKR': 'sum',
+        'Symbol': 'first',
+        'Buy/Sell': 'first',
+        'TradeDate': 'first',
+        'Notes/Codes': 'first'
+    }
+    
+    # Group by instrument and count trades per group
+    trades_per_instrument = processed_df.groupby('Beteckning').size()
+    grouped_df = processed_df.groupby('Beteckning', as_index=False).agg(aggregation_dict)
+    
+    # Round Diff vs IBKR to 2 decimal places
+    grouped_df['Diff vs IBKR'] = grouped_df['Diff vs IBKR'].round(2)
+    
+    # Add GroupInfo for multi-trade instruments
+    grouped_df['GroupInfo'] = trades_per_instrument.apply(lambda count: f"Grouped {count} trades" if count > 1 else None).values
+    
+    logger.info(f"Grouped trades: {len(processed_df)} -> {len(grouped_df)}")
+    
+    return grouped_df
+
+def print_summary(result_df: pd.DataFrame, report_type: str = "Summary"):
     """Print summary statistics of the processing results"""
-    with debug_section(f"{report_type} Statistics"):
-        total_gain = result['Vinst'].sum()
-        total_loss = result['Förlust'].sum()
-        total_diff = result['Diff vs IBKR'].sum()
-        net_result = total_gain - total_loss
-        
-        if 'GroupInfo' in result.columns:
-            grouped_count = result['GroupInfo'].notna().sum()
-            if grouped_count > 0:
-                logger.info(f"Grouped {grouped_count} sets of partial executions")
-        
-        logger.info(f"\n{report_type}:")
-        logger.info(f"Total Gain: {total_gain:.2f} SEK")
-        logger.info(f"Total Loss: {total_loss:.2f} SEK")
-        logger.info(f"Net Result: {net_result:.2f} SEK")
-        logger.info(f"Total diff: {total_diff:.2f} SEK")
+    total_gain = result_df['Vinst'].sum()
+    total_loss = result_df['Förlust'].sum()
+    total_diff = result_df['Diff vs IBKR'].sum()
+    net_result = total_gain - total_loss
+    
+    if 'GroupInfo' in result_df.columns:
+        grouped_instruments_count = result_df['GroupInfo'].notna().sum()
+        if grouped_instruments_count > 0:
+            logger.info(f"Grouped {grouped_instruments_count} instruments")
+    
+    logger.info(f"{report_type}: Gain {total_gain:.2f}, Loss {total_loss:.2f}, Net {net_result:.2f}, Diff {total_diff:.2f}")
 
 def create_default_config(output_path: str) -> None:
     """Create a default config file if none exists"""
     if not os.path.exists(output_path):
         with open(output_path, 'w', encoding='utf-8') as f:
             json.dump(DEFAULT_CONFIG, f, ensure_ascii=False, indent=4)
-            
-        logger.info(f"Created default configuration file: {output_path}")
+        logger.info(f"Created default config: {output_path}")
 
 def parse_arguments():
     """Parse command line arguments"""
@@ -504,74 +343,70 @@ def main():
     if args.create_config:
         create_default_config(args.config)
         if not args.input_file or not os.path.isfile(args.input_file):
-            logger.info("No input file specified. Exiting after creating config.")
+            logger.info("No input file specified. Exiting.")
             return
     
     # Load configuration
     config = load_config(args.config)
     
     if not args.input_file:
-        logger.error("No input file specified. Use --create-config to generate a config file.")
+        logger.error("No input file specified.")
         return
     
     if not os.path.isfile(args.input_file):
-        logger.error(f"Error: Input file not found: {args.input_file}")
+        logger.error(f"Input file not found: {args.input_file}")
         return
     
     try:
-        with debug_section("K4 Report Generation"):
-            trades = load_trades(args.input_file)
-            if trades is None:
-                return
-                
-            trades_sek = convert_to_sek(trades, config['fx_rates'])
+        trades_df = load_trades(args.input_file)
+        if trades_df is None:
+            return
             
-            result = process_trades(trades_sek)
-            
-            # Load and combine additional trades if provided
-            if args.additional_trades:
-                additional_trades = load_additional_trades(args.additional_trades)
-                result = pd.concat([result, additional_trades], ignore_index=True)
-                logger.info(f"Combined {len(result)} total trades (IB and additional)")
-            else:
-                logger.info(f"Processed {len(result)} IB trades")
-            
-            result.sort_values('Beteckning', inplace=True)
-            grouped_result = group_partial_executions(result)
-            
-            print_summary(result, "Original Report")
-            print_summary(grouped_result, "Grouped Report")
-            
-            # Save CSV outputs
-            # Ensure the output directory exists
-            output_dir = 'output'
-            if not os.path.exists(output_dir):
-                os.makedirs(output_dir)
-            
-            input_base_name = os.path.splitext(os.path.basename(args.input_file))[0]
-            
-            output_file = os.path.join(output_dir, f"{input_base_name}_k4.csv")
-            result.to_csv(output_file, sep=';', decimal=',', index=False)
-            logger.info(f"\nResults saved to: {output_file}")
-            
-            grouped_output_file = os.path.join(output_dir, f"{input_base_name}_k4_grouped.csv")
-            
-            output_cols = list(grouped_result.columns)
-            if 'GroupInfo' in output_cols and 'Notes/Codes' in output_cols:
-                output_cols.remove('GroupInfo')
-                notes_index = output_cols.index('Notes/Codes')
-                output_cols.insert(notes_index + 1, 'GroupInfo')
-                grouped_result = grouped_result[output_cols]
-            
-            grouped_result.to_csv(grouped_output_file, sep=';', decimal=',', index=False)
-            logger.info(f"Grouped results saved to: {grouped_output_file}")
-            
-            # Generate SRU files (if not disabled)
-            if not args.no_sru:            
-                with debug_section("Generating SRU Files"):
-                    generate_sru_files(grouped_result, config, output_dir)
-            else:
-                logger.info("SRU file generation skipped (--no-sru flag provided)")
+        trades_in_sek = convert_to_sek(trades_df, config['fx_rates'])
+        
+        processed_trades = process_trades(trades_in_sek)
+        
+        # Load and combine additional trades if provided
+        if args.additional_trades:
+            additional_trades = load_additional_trades(args.additional_trades)
+            processed_trades = pd.concat([processed_trades, additional_trades], ignore_index=True)
+            logger.info(f"Total trades: {len(processed_trades)} (IB + additional)")
+        else:
+            logger.info(f"Processed {len(processed_trades)} IB trades")
+        
+        processed_trades.sort_values('Beteckning', inplace=True)
+        grouped_trades = group_partial_executions(processed_trades)
+        
+        print_summary(processed_trades, "Original")
+        print_summary(grouped_trades, "Grouped")
+        
+        # Save CSV outputs
+        output_dir = 'output'
+        os.makedirs(output_dir, exist_ok=True)
+        
+        input_base_name = os.path.splitext(os.path.basename(args.input_file))[0]
+        
+        output_file = os.path.join(output_dir, f"{input_base_name}_k4.csv")
+        processed_trades.to_csv(output_file, sep=';', decimal=',', index=False)
+        logger.info(f"Saved: {output_file}")
+        
+        grouped_output_file = os.path.join(output_dir, f"{input_base_name}_k4_grouped.csv")
+        
+        output_columns = list(grouped_trades.columns)
+        if 'GroupInfo' in output_columns and 'Notes/Codes' in output_columns:
+            output_columns.remove('GroupInfo')
+            notes_column_index = output_columns.index('Notes/Codes')
+            output_columns.insert(notes_column_index + 1, 'GroupInfo')
+            grouped_trades = grouped_trades[output_columns]
+        
+        grouped_trades.to_csv(grouped_output_file, sep=';', decimal=',', index=False)
+        logger.info(f"Saved: {grouped_output_file}")
+        
+        # Generate SRU files (if not disabled)
+        if not args.no_sru:            
+            generate_sru_files(grouped_trades, config, output_dir)
+        else:
+            logger.info("SRU generation skipped")
         
     except Exception as e:
         logger.error(f"Error: {e}")
