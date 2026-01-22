@@ -123,8 +123,13 @@ def convert_to_sek(trades_df: pd.DataFrame, exchange_rates: Dict[str, float]) ->
     if len(missing_currencies) > 0:
         raise ValueError(f"Missing FX rates for: {', '.join(missing_currencies)}")
 
-    for col in ['IBCommission', 'CostBasis', 'Proceeds']:
-        converted_df[col] = (converted_df[col].abs() * converted_df['FX']).round().astype(int)
+    # Commission: positive = rebate (we got paid), negative = cost (we paid)
+    # Keep the sign so rebates reduce omkostnadsbelopp
+    converted_df['IBCommission'] = (converted_df['IBCommission'] * converted_df['FX']).round().astype(int)
+    
+    # Keep signs for Proceeds and CostBasis to determine which represents sale vs cost
+    converted_df['Proceeds'] = (converted_df['Proceeds'] * converted_df['FX']).round().astype(int)
+    converted_df['CostBasis'] = (converted_df['CostBasis'] * converted_df['FX']).round().astype(int)
 
     converted_df['IBKRPnL'] = (converted_df['FifoPnlRealized'] * converted_df['FX']).round(2)
     return converted_df
@@ -149,11 +154,42 @@ def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbel
     }
 
 def process_standard_trade(trade_row: pd.Series) -> Dict:
-    """Process standard trades (not exercise/assignment)"""
-    is_sell = trade_row['Buy/Sell'] == 'SELL'
+    """Process standard trades (not exercise/assignment)
     
-    forsaljningspris = trade_row['Proceeds'] if is_sell else abs(trade_row['CostBasis'])
-    omkostnadsbelopp = (abs(trade_row['CostBasis']) if is_sell else abs(trade_row['Proceeds'])) + trade_row['IBCommission']
+    Handles both regular commissions (negative values that increase cost)
+    and exchange rebates (positive values that reduce cost).
+    
+    IBKR reports closing trades:
+    - When Proceeds > 0: we received money (försäljningspris), CostBasis is cost (omkostnadsbelopp)
+    - When Proceeds < 0: we paid money (omkostnadsbelopp), CostBasis is what we got (försäljningspris)
+    - When Proceeds = 0 (expired options): full cost/gain is in CostBasis, commission is always zero
+      * CostBasis < 0: loss (we paid to close or lost premium)
+      * CostBasis > 0: profit (we kept premium or gained)
+    """
+    commission = trade_row['IBCommission']
+    proceeds = trade_row['Proceeds']
+    cost_basis = trade_row['CostBasis']
+    
+    # Commission: positive = rebate (reduces cost), negative = cost (increases cost)
+    if proceeds > 0:
+        # Normal case: Proceeds = sale, CostBasis = purchase cost
+        forsaljningspris = abs(proceeds)
+        omkostnadsbelopp = abs(cost_basis) - commission
+    elif proceeds < 0:
+        # Inverted case: Proceeds = cost (negative), CostBasis = sale
+        forsaljningspris = abs(cost_basis)
+        omkostnadsbelopp = abs(proceeds) - commission
+    else:
+        # Expired option case: Proceeds = 0, full cost/gain is in CostBasis, commission = 0
+        # CostBasis sign indicates profit/loss, not position type
+        if cost_basis < 0:
+            # Loss - we paid or lost money
+            forsaljningspris = 0
+            omkostnadsbelopp = abs(cost_basis)
+        else:
+            # Profit - we kept money or gained
+            forsaljningspris = abs(cost_basis)
+            omkostnadsbelopp = 0
     
     return make_trade_result(trade_row, forsaljningspris, omkostnadsbelopp)
 
@@ -177,35 +213,51 @@ def get_option_premium(related_options: pd.DataFrame, buy_sell: str, put_call: s
     return filtered_options['CostBasis'].iloc[0]
 
 def handle_long_call_exercise(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
-    """Handle long call exercise (BUY stock, SELL option with Ex)"""
+    """Handle long call exercise (BUY stock, SELL option with Ex)
+    
+    The stock trade itself incurs commission, which affects the cost basis.
+    """
     option_premium = abs(get_option_premium(related_options, 'SELL', 'C', 'Ex'))
     forsaljningspris = stock_trade_row['CostBasis']
     stock_cost = abs(stock_trade_row['Proceeds'])
-    omkostnadsbelopp = stock_cost + option_premium + stock_trade_row['IBCommission']
+    commission = stock_trade_row['IBCommission']
+    omkostnadsbelopp = stock_cost + option_premium - commission
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_long_put_exercise(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
-    """Handle long put exercise (SELL stock, SELL option with Ex)"""
+    """Handle long put exercise (SELL stock, SELL option with Ex)
+    
+    The stock trade itself incurs commission, which affects the cost basis.
+    """
     option_premium = abs(get_option_premium(related_options, 'SELL', 'P', 'Ex'))
     forsaljningspris = stock_trade_row['Proceeds']
     stock_cost = abs(stock_trade_row['CostBasis'])
-    omkostnadsbelopp = stock_cost + option_premium + stock_trade_row['IBCommission']
+    commission = stock_trade_row['IBCommission']
+    omkostnadsbelopp = stock_cost + option_premium - commission
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_short_call_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
-    """Handle short call assignment (SELL stock, BUY option with A)"""
+    """Handle short call assignment (SELL stock, BUY option with A)
+    
+    The stock trade itself incurs commission, which affects the cost basis.
+    """
     option_premium = get_option_premium(related_options, 'BUY', 'C', 'A')
     forsaljningspris = stock_trade_row['Proceeds']
     stock_cost = abs(stock_trade_row['CostBasis'])
-    omkostnadsbelopp = stock_cost - option_premium + stock_trade_row['IBCommission']
+    commission = stock_trade_row['IBCommission']
+    omkostnadsbelopp = stock_cost - option_premium - commission
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_short_put_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
-    """Handle short put assignment (BUY stock, BUY option with A)"""
+    """Handle short put assignment (BUY stock, BUY option with A)
+    
+    The stock trade itself incurs commission, which affects the cost basis.
+    """
     option_premium = get_option_premium(related_options, 'BUY', 'P', 'A')
     forsaljningspris = stock_trade_row['CostBasis']
     stock_cost = abs(stock_trade_row['Proceeds'])
-    omkostnadsbelopp = stock_cost - option_premium + stock_trade_row['IBCommission']
+    commission = stock_trade_row['IBCommission']
+    omkostnadsbelopp = stock_cost - option_premium - commission
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def process_exercise_assignment(stock_trade_row: pd.Series, trades_df: pd.DataFrame, exercise_assigned_indices: Set) -> Dict:
