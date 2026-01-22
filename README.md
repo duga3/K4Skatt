@@ -16,14 +16,27 @@
 - Automatically groups partial executions for simplified reporting.
 - Simple command-line interface for ease of use.
 
+## Quick start
+
+1. Install Python 3 and `pandas` (see prerequisites below).
+2. Generate a default config if you do not have one yet:
+   ```bash
+   python src/k4_script.py --create-config --config config.json
+   ```
+3. Run the example IBKR export to verify everything works:
+   ```bash
+   python src/k4_script.py input/example.csv --config config.json
+   ```
+   The K4 CSVs and SRU files will appear in `output/`.
+
 ---
 
 ## Prerequisites
 
-- **Python 3.x** installed on your system.
-- Required Python libraries: `pandas`, `argparse`, `logging`, `json`, `os`.
+- **Python 3.9+**
+- **Python packages**: `pandas`
 
-Install the required libraries using:
+Install the dependency with:
 
 ```bash
 pip install pandas
@@ -31,28 +44,28 @@ pip install pandas
 
 ---
 
-## Preparing Interactive Brokers Trade Data
+## Preparing Interactive Brokers trade data
 
-1. **Create a Flex Query Report** in Interactive Brokers (Client Portal):
-   - Navigate to **Reports** > **Flex Queries** > **Create New Flex Query**.
-   - Select **Trades** as the report type.
-   - Include at least the following fields:
-     - `DateTime` *(Configure flex query without date separator)*
+1. **Create a Flex Query Report** in IBKR Client Portal:
+   - Reports → Flex Queries → Create New Flex Query → **Trades**.
+   - Configure **Date/Time** without separator and use the format `YYYYMMDDHHMMSS`.
+   - Include these fields:
+     - `DateTime`
      - `Buy/Sell`
-     - `Open/CloseIndicator`
+     - `Open/Close Indicator`
      - `AssetClass`
      - `Description`
      - `Quantity`
-     - `CostBasis`
+     - `Cost Basis`
      - `Proceeds`
-     - `CurrencyPrimary`
-     - `IBCommission`
-     - `FifoPnlRealized`
+     - `Currency`
+     - `IB Commission`
+     - `Realized P/L`
      - `Notes/Codes`
      - `Symbol`
-     - `UnderlyingSymbol`
+     - `Underlying Symbol`
 2. **Save and Run** the Flex Query.
-3. **Export the Report** as **CSV**. Ensure the exported CSV uses **semicolon (;)** as the delimiter and **comma (,)** as the decimal separator.
+3. **Export the Report** as **CSV**.
 4. Place the CSV file in a convenient location (e.g., the `input/` directory, though any path is accepted by the script).
 
 ---
@@ -61,15 +74,15 @@ pip install pandas
 
 1. Clone or download the repository to your local machine.
 2. Ensure the script files (`k4_script.py`, `sru_generator.py`, etc.) are located in the `src/` directory.
-3. *(Optional)* Place your IBKR trade data CSV file in the `input/` directory for organization (though any file path can be specified).
+3. *(Optional)* Place your IBKR trade data CSV file in the `input/` directory for organization (any path works).
 4. *(Optional)* If you have additional trade data, place it in the `input/` directory or another accessible location.
-5. Update `config/config.json` with your personal details and currency exchange rates. See the **Config File** section below for details.
+5. Update `config.json` with your personal details and currency exchange rates (or generate it with `--create-config`). See **Config File** below.
 
 ---
 
 ## Config File
 
-The script requires a configuration file (`config.json`) to provide personal information and exchange rates for currency conversion. If it doesn’t exist, you can generate a default one using the `--create-config` option.
+The script uses `config.json` (default path) for personal information and FX rates. If it doesn’t exist, generate a default one with `--create-config`.
 
 Here’s the expected structure:
 
@@ -82,7 +95,7 @@ Here’s the expected structure:
         "postnummer": "XXXXX",
         "postort": "Staden",
         "email": "example@email.com",
-        "inkomstar": "2023"
+        "inkomstar": "2025"
     },
     "fx_rates": {
         "USD": 10.5,
@@ -94,40 +107,40 @@ Here’s the expected structure:
 ```
 
 - **Personal Information**: Update with your details (e.g., `personnummer`, `namn`, etc.).
-- **`inkomstar`**: Set to the tax year you’re reporting (e.g., `"2023"` for the 2023 tax year). Defaults to the previous year if not specified.
+- **`inkomstar`**: Set to the tax year you’re reporting. Defaults to the previous year if not specified.
 - **`fx_rates`**: Provide exchange rates (in SEK) for all currencies in your trade data. Ensure every currency present in your trades is included to avoid errors. You can get the official rates from [Riksbankens website](https://www.riksbank.se/sv/statistik/rantor-och-valutakurser/sok-rantor-och-valutakurser/).
 
 ---
 
 ## Usage
 
-Run the script from the command line with the following syntax:
+Run the script from the command line with:
 
 ```bash
-python src/k4_script.py input/ib_trades.csv --config config/config.json
+python src/k4_script.py input/ib_trades.csv --config config.json
 ```
 
 ### Options
 
-| Option              | Description                                                  |
-|---------------------|--------------------------------------------------------------|
-| `input_file`        | Path to the IBKR trades CSV file (required unless creating config). |
-| `--config`          | Path to the configuration file (default: `config.json`).     |
-| `--create-config`   | Create a default `config.json` file and exit if no input file is provided. |
-| `--verbose`         | Enable detailed logging for debugging.                       |
-| `--no-sru`          | Skip SRU file generation.                                    |
-| `--additional-trades` | Path to a CSV file with pre-calculated trades from other sources. |
+| Option                | Description                                                          |
+|-----------------------|----------------------------------------------------------------------|
+| `input_file`          | Path to the IBKR trades CSV file (required unless creating config).  |
+| `--config`            | Path to the configuration file (default: `config.json`).             |
+| `--create-config`     | Create a default `config.json` file and exit if no input file is provided. |
+| `--verbose`           | Enable detailed logging for debugging.                               |
+| `--no-sru`            | Skip SRU file generation.                                            |
+| `--additional-trades` | Path to a CSV file with pre-calculated trades from other sources.     |
 
 #### Examples
 
 - **Basic usage**:
   ```bash
-  python src/k4_script.py input/ib_trades.csv --config config/config.json
+  python src/k4_script.py input/ib_trades.csv --config config.json
   ```
 
 - **With additional trades**:
   ```bash
-  python src/k4_script.py input/ib_trades.csv --additional-trades input/additional_trades.csv --config config/config.json
+  python src/k4_script.py input/ib_trades.csv --additional-trades input/additional_trades.csv --config config.json
   ```
 
 - **Create a default config file**:
@@ -135,22 +148,19 @@ python src/k4_script.py input/ib_trades.csv --config config/config.json
   python src/k4_script.py --create-config
   ```
 
-#### Notes
+### Additional trades CSV format
 
-- **Additional Trades CSV**: If using `--additional-trades`, the CSV must be **semicolon-separated** with **comma as the decimal separator** and include these columns:
-  - `Symbol`
-  - `Beteckning`
-  - `Antal`
-  - `Försäljningspris`
-  - `Omkostnadsbelopp`
-  - `Vinst`
-  - `Förlust`
-  
-  All monetary values must be in **SEK** and represented as integers (e.g., 1000 for 1,000 SEK).
+If you pass `--additional-trades`, the file must be **semicolon-separated**, use comma as the decimal separator, and include these columns:
 
-- **Config Creation**: Running with `--create-config` generates a default `config.json`. If no `input_file` is provided, the script exits after creating the file.
+- `Symbol`
+- `Beteckning`
+- `Antal`
+- `Försäljningspris`
+- `Omkostnadsbelopp`
+- `Vinst`
+- `Förlust`
 
----
+All monetary values must be integers in SEK (e.g., `1000` for 1,000 SEK). Missing columns cause the run to fail early.
 
 ## Output
 
