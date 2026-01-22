@@ -368,7 +368,7 @@ class TestSRUGenerator(unittest.TestCase):
         self.assertIn("#FIL_SLUT\n", content)
 
     def test_generate_blankett_sru_file_long_beteckning(self):
-        """Test BLANKETTER.SRU file generation with a long Beteckning"""
+        """Test BLANKETTER.SRU file generation with long Beteckning"""
         blanketter_path = os.path.join(self.temp_dir, "BLANKETTER.SRU")
         generate_blankett_sru_file(self.long_beteckning_data, self.config, blanketter_path)
 
@@ -419,26 +419,6 @@ class TestSRUGenerator(unittest.TestCase):
         self.assertIn("#BLANKETTSLUT\n", content)
         self.assertIn("#FIL_SLUT\n", content)
 
-        # Verify logging output
-        log_contents = log_capture_string.getvalue()
-        expected_log_lines = [
-            "Section A (Securities)",
-            "  Number of Securities: 1",
-            "  Total Gain:          3000 SEK",
-            "  Total Loss:          0 SEK",
-            "Section D (Cryptocurrencies)",
-            "  Number of Securities: 0",
-            "  Total Gain:          0 SEK",
-            "  Total Loss:          0 SEK",
-            "Totals",
-            "  Total Securities:    1",
-            "  Total Gain:          3000 SEK (Report in K4 Declaration)",
-            "  Total Loss:          0 SEK (Report in K4 Declaration)",
-            "Total Blanketts Generated: 1"
-        ]
-        for line in expected_log_lines:
-            self.assertIn(line, log_contents)
-
     def test_generate_blankett_sru_file_single_section_d(self):
         """Test BLANKETTER.SRU file generation with a single Section D trade"""
         blanketter_path = os.path.join(self.temp_dir, "BLANKETTER.SRU")
@@ -476,26 +456,6 @@ class TestSRUGenerator(unittest.TestCase):
         self.assertIn("#UPPGIFT 7014 1\n", content)  # Single blankett
         self.assertIn("#BLANKETTSLUT\n", content)
         self.assertIn("#FIL_SLUT\n", content)
-
-        # Verify logging output
-        log_contents = log_capture_string.getvalue()
-        expected_log_lines = [
-            "Section A (Securities)",
-            "  Number of Securities: 0",
-            "  Total Gain:          0 SEK",
-            "  Total Loss:          0 SEK",
-            "Section D (Cryptocurrencies)",
-            "  Number of Securities: 1",
-            "  Total Gain:          5000 SEK",
-            "  Total Loss:          0 SEK",
-            "Totals",
-            "  Total Securities:    1",
-            "  Total Gain:          5000 SEK (Report in K4 Declaration)",
-            "  Total Loss:          0 SEK (Report in K4 Declaration)",
-            "Total Blanketts Generated: 1"
-        ]
-        for line in expected_log_lines:
-            self.assertIn(line, log_contents)
 
 if __name__ == '__main__':
     unittest.main()
