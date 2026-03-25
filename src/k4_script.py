@@ -27,7 +27,6 @@ DEFAULT_CONFIG = {
     "fx_rates": {
         "USD": 10.5,
         "CHF": 12.2,
-        "SEK": 1.0,
         "EUR": 10.0
     }
 }
@@ -118,7 +117,10 @@ def load_additional_trades(file_path: str) -> pd.DataFrame:
 
 def convert_to_sek(trades_df: pd.DataFrame, exchange_rates: Dict[str, float]) -> pd.DataFrame:
     converted_df = trades_df.copy()
-    converted_df['FX'] = converted_df['CurrencyPrimary'].map(exchange_rates)
+    # Handle SEK automatically with conversion factor of 1.0
+    converted_df['FX'] = converted_df['CurrencyPrimary'].apply(
+        lambda currency: 1.0 if currency == 'SEK' else exchange_rates.get(currency)
+    )
 
     missing_currencies = converted_df[converted_df['FX'].isna()]['CurrencyPrimary'].unique()
     if len(missing_currencies) > 0:
