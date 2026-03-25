@@ -104,6 +104,7 @@ def load_additional_trades(file_path: str) -> pd.DataFrame:
         additional_df['Buy/Sell'] = ''  # Default empty string
         additional_df['TradeDate'] = pd.NaT  # Not required for SRU, set to NaT
         additional_df['Notes/Codes'] = ''  # Ensures grouping treats them as single trades
+        additional_df['UnderlyingSymbol'] = ''
         
         # Ensure correct data types
         for col in ['Försäljningspris', 'Omkostnadsbelopp', 'Vinst', 'Förlust','Antal']:
@@ -145,6 +146,7 @@ def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbel
         'Antal': int(trade_row['Antal']),
         'Beteckning': trade_row['Beteckning'],
         'Symbol': trade_row.get('Symbol', ''),
+        'UnderlyingSymbol': trade_row.get('UnderlyingSymbol', ''),
         'Försäljningspris': int(forsaljningspris),
         'Omkostnadsbelopp': int(omkostnadsbelopp),
         'Vinst': int(max(0, net_result)),
@@ -333,6 +335,7 @@ def group_partial_executions(processed_df: pd.DataFrame) -> pd.DataFrame:
         'IBKRPnL': 'sum',
         'Diff vs IBKR': 'sum',
         'Symbol': 'first',
+        'UnderlyingSymbol': 'first',
         'Buy/Sell': 'first',
         'TradeDate': 'first',
         'Notes/Codes': 'first'

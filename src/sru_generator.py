@@ -6,9 +6,42 @@ from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
-SECTION_D_INSTRUMENTS = ['BITW', 'BTC', 'ETH', 'GBTC', 'ETHE', 'SOL', 'DOT', 'ADA']
+SECTION_D_INSTRUMENTS = [
+    # Cryptocurrencies
+    'BITW', 'BTC', 'ETH', 'GBTC', 'ETHE', 'SOL', 'DOT', 'ADA',
+    # Metals (COMEX)
+    'GC', 'SI', 'HG', 'PA', 'PL',  # Gold, Silver, Copper, Palladium, Platinum
+    # Energy (NYMEX)
+    'CL', 'RB', 'HO', 'NG', 'BZ',  # Crude Oil, RBOB Gas, Heating Oil, Natural Gas, Brent
+    # Grains (CBOT)
+    'ZC', 'ZS', 'ZW', 'ZO', 'ZL', 'ZM',  # Corn, Soybeans, Wheat, Oats, Soybean Oil, Soybean Meal
+    # Livestock (CME)
+    'LE', 'LH', 'GF',  # Live Cattle, Lean Hogs, Feeder Cattle
+    # Soft Commodities (ICE)
+    'KC', 'CC', 'SB', 'CT',  # Coffee, Cocoa, Sugar, Cotton
+]
 MAX_TRADES_PER_SECTION_A = 9
 MAX_TRADES_PER_SECTION_D = 7
+
+# Valid month codes for futures contracts
+VALID_FUTURES_MONTH_CODES = {'F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'}
+
+def extract_futures_symbol(symbol: str) -> str:
+    if not symbol or len(symbol) < 3:
+        return symbol
+    
+    # Check if last character is a digit (year indicator)
+    if not symbol[-1].isdigit():
+        return symbol
+    
+    # Check if second-to-last character is a valid futures month code
+    if symbol[-2] not in VALID_FUTURES_MONTH_CODES:
+        return symbol
+    
+    # Extract base code (everything except last 2 characters)
+    base_code = symbol[:-2]
+    
+    return base_code
 
 def validate_sru_config(config: Dict) -> bool:
     if 'personal' not in config:
@@ -92,15 +125,24 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     personnummer = personal['personnummer'].replace('-', '')
     timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
     
-    # Split data into sections
-    section_d_mask = result_data['Symbol'].isin(SECTION_D_INSTRUMENTS)
+    section_d_mask = (
+        result_data['UnderlyingSymbol']
+        .apply(extract_futures_symbol)
+        .isin(SECTION_D_INSTRUMENTS)
+    )
     section_d_data = result_data[section_d_mask].copy()
     section_a_data = result_data[~section_d_mask].copy()
+
+    # DEBUG: Print Section D trades summary
+    if not section_d_data.empty:
+        logger.info(f"Section D Trades: {len(section_d_data)} trades identified")
+        d_symbols = section_d_data['UnderlyingSymbol'].unique()
+        logger.info(f"Section D Instruments: {', '.join(sorted(d_symbols))}")
+    else:
+        logger.info("Section D Trades: No trades identified for Section D")
     
     total_section_a = len(section_a_data)
     total_section_d = len(section_d_data)
-    
-    logger.info(f"Section A: {total_section_a} securities | Section D: {total_section_d} cryptocurrencies")
     
     # Calculate number of blanketts needed
     num_blanketts_a = (total_section_a + MAX_TRADES_PER_SECTION_A - 1) // MAX_TRADES_PER_SECTION_A if total_section_a > 0 else 0
@@ -154,9 +196,9 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     logger.info("=" * 50)
     logger.info("SRU FILE GENERATION SUMMARY")
     logger.info("=" * 50)
-    logger.info(f"Section A - Securities:     {total_section_a:5d} | Gain: {int(total_gain_a):10d} | Loss: {int(total_loss_a):10d}")
-    logger.info(f"Section D - Crypto:         {total_section_d:5d} | Gain: {int(total_gain_d):10d} | Loss: {int(total_loss_d):10d}")
+    logger.info(f"Section A - Securities: {total_section_a:5d} | Gain: {int(total_gain_a):10d} | Loss: {int(total_loss_a):10d}")
+    logger.info(f"Section D - Other:      {total_section_d:5d} | Gain: {int(total_gain_d):10d} | Loss: {int(total_loss_d):10d}")
     logger.info("-" * 50)
-    logger.info(f"TOTAL:                      {total_section_a + total_section_d:5d} | Gain: {int(total_gain_a + total_gain_d):10d} | Loss: {int(total_loss_a + total_loss_d):10d}")
+    logger.info(f"TOTAL: {total_section_a + total_section_d:5d} | Gain: {int(total_gain_a + total_gain_d):10d} | Loss: {int(total_loss_a + total_loss_d):10d}")
     logger.info(f"Blanketts: {num_blanketts}")
     logger.info("=" * 50)
