@@ -12,7 +12,7 @@
   - Long and short options
   - Assignments
   - Exercises
-- Includes pre-calculated trades from non-IBKR sources.
+- Includes pre-calculated trades from other brokers or sources, such as Nordnet.
 - Automatically groups partial executions for simplified reporting.
 - Simple command-line interface for ease of use.
 
@@ -148,6 +148,16 @@ python src/k4_script.py input/ib_trades.csv --config config.json
   python src/k4_script.py --create-config
   ```
 
+### Testing
+
+To run the unit tests for the SRU generator:
+
+```bash
+python -m unittest tests/test_sru_generator.py
+```
+
+This will validate the SRU file generation functionality.
+
 ### Additional trades CSV format
 
 If you pass `--additional-trades`, the file must be **semicolon-separated**, use comma as the decimal separator, and include these columns:
@@ -184,6 +194,12 @@ If you have fewer than 300 trades to report, you can upload the `BLANKETTER.SRU`
 ## Disclaimer
 
 **K4Skatt** is provided "as is" without warranty of any kind. Users are responsible for verifying the accuracy of the calculations and ensuring compliance with applicable tax laws.
+
+---
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
 ---
 
