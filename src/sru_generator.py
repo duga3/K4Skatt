@@ -6,6 +6,11 @@ from typing import Dict, List, Tuple
 
 logger = logging.getLogger(__name__)
 
+SECTION_C_INSTRUMENTS = [
+    # Currency futures (CME)
+    '6E', '6J', '6B', '6C', '6A', '6N', '6S', '6R', '6M', '6Z',
+]
+
 SECTION_D_INSTRUMENTS = [
     # Cryptocurrencies
     'BITW', 'BTC', 'ETH', 'GBTC', 'ETHE', 'SOL', 'DOT', 'ADA',
@@ -21,17 +26,21 @@ SECTION_D_INSTRUMENTS = [
     'KC', 'CC', 'SB', 'CT',  # Coffee, Cocoa, Sugar, Cotton
 ]
 MAX_TRADES_PER_SECTION_A = 9
+MAX_TRADES_PER_SECTION_C = 7
 MAX_TRADES_PER_SECTION_D = 7
 
 # Valid month codes for futures contracts
 VALID_FUTURES_MONTH_CODES = {'F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'}
 
 def extract_futures_symbol(symbol: str) -> str:
+    if symbol is None or (isinstance(symbol, float) and pd.isna(symbol)):
+        return symbol
+    
     if not symbol or len(symbol) < 3:
         return symbol
     
     # Check if last character is a digit (year indicator)
-    if not symbol[-1].isdigit():
+    if not isinstance(symbol, str) or not symbol[-1].isdigit():
         return symbol
     
     # Check if second-to-last character is a valid futures month code
@@ -125,15 +134,22 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     personnummer = personal['personnummer'].replace('-', '')
     timestamp = datetime.now().strftime("%Y%m%d %H%M%S")
     
-    section_d_mask = (
-        result_data['UnderlyingSymbol']
-        .apply(extract_futures_symbol)
-        .isin(SECTION_D_INSTRUMENTS)
-    )
-    section_d_data = result_data[section_d_mask].copy()
-    section_a_data = result_data[~section_d_mask].copy()
+    fut_underlying = result_data['UnderlyingSymbol'].apply(extract_futures_symbol)
 
-    # DEBUG: Print Section D trades summary
+    section_c_mask = fut_underlying.isin(SECTION_C_INSTRUMENTS)
+    section_d_mask = fut_underlying.isin(SECTION_D_INSTRUMENTS)
+    section_c_data = result_data[section_c_mask].copy()
+    section_d_data = result_data[section_d_mask].copy()
+    section_a_data = result_data[~section_c_mask & ~section_d_mask].copy()
+
+    # DEBUG: Print Section C/D trades summary
+    if not section_c_data.empty:
+        logger.info(f"Section C Trades: {len(section_c_data)} trades identified")
+        c_symbols = section_c_data['UnderlyingSymbol'].unique()
+        logger.info(f"Section C Instruments: {', '.join(sorted(c_symbols))}")
+    else:
+        logger.info("Section C Trades: No trades identified for Section C")
+
     if not section_d_data.empty:
         logger.info(f"Section D Trades: {len(section_d_data)} trades identified")
         d_symbols = section_d_data['UnderlyingSymbol'].unique()
@@ -142,12 +158,14 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
         logger.info("Section D Trades: No trades identified for Section D")
     
     total_section_a = len(section_a_data)
+    total_section_c = len(section_c_data)
     total_section_d = len(section_d_data)
     
     # Calculate number of blanketts needed
     num_blanketts_a = (total_section_a + MAX_TRADES_PER_SECTION_A - 1) // MAX_TRADES_PER_SECTION_A if total_section_a > 0 else 0
+    num_blanketts_c = (total_section_c + MAX_TRADES_PER_SECTION_C - 1) // MAX_TRADES_PER_SECTION_C if total_section_c > 0 else 0
     num_blanketts_d = (total_section_d + MAX_TRADES_PER_SECTION_D - 1) // MAX_TRADES_PER_SECTION_D if total_section_d > 0 else 0
-    num_blanketts = max(num_blanketts_a, num_blanketts_d, 1)
+    num_blanketts = max(num_blanketts_a, num_blanketts_c, num_blanketts_d, 1)
     
     logger.info(f"Generating {num_blanketts} blanketts")
     
@@ -168,6 +186,17 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
             append_section_data(sru_lines, blankett_a, base_prefix='31', 
                               index_offset=0, summary_tags=summary_tags_a)
         
+        # Section C data
+        c_start = blankett_index * MAX_TRADES_PER_SECTION_C
+        c_end = min((blankett_index + 1) * MAX_TRADES_PER_SECTION_C, total_section_c)
+        blankett_c = section_c_data.iloc[c_start:c_end] if c_start < total_section_c else pd.DataFrame()
+
+        if not blankett_c.empty:
+            summary_tags_c = [('3400', 'Försäljningspris'), ('3401', 'Omkostnadsbelopp'),
+                              ('3403', 'Vinst'), ('3404', 'Förlust')]
+            append_section_data(sru_lines, blankett_c, base_prefix='33',
+                              index_offset=1, summary_tags=summary_tags_c)
+
         # Section D data
         d_start = blankett_index * MAX_TRADES_PER_SECTION_D
         d_end = min((blankett_index + 1) * MAX_TRADES_PER_SECTION_D, total_section_d)
@@ -175,7 +204,7 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
         
         if not blankett_d.empty:
             summary_tags_d = [('3500', 'Försäljningspris'), ('3501', 'Omkostnadsbelopp'), 
-                             ('3503', 'Vinst'), ('3504', 'Förlust')]
+                              ('3503', 'Vinst'), ('3504', 'Förlust')]
             append_section_data(sru_lines, blankett_d, base_prefix='34', 
                               index_offset=1, summary_tags=summary_tags_d)
         
@@ -190,6 +219,8 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     # Log summary
     total_gain_a = section_a_data['Vinst'].sum() if not section_a_data.empty else 0
     total_loss_a = section_a_data['Förlust'].sum() if not section_a_data.empty else 0
+    total_gain_c = section_c_data['Vinst'].sum() if not section_c_data.empty else 0
+    total_loss_c = section_c_data['Förlust'].sum() if not section_c_data.empty else 0
     total_gain_d = section_d_data['Vinst'].sum() if not section_d_data.empty else 0
     total_loss_d = section_d_data['Förlust'].sum() if not section_d_data.empty else 0
     
@@ -197,8 +228,9 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     logger.info("SRU FILE GENERATION SUMMARY")
     logger.info("=" * 50)
     logger.info(f"Section A - Securities: {total_section_a:5d} | Gain: {int(total_gain_a):10d} | Loss: {int(total_loss_a):10d}")
+    logger.info(f"Section C - Currency:   {total_section_c:5d} | Gain: {int(total_gain_c):10d} | Loss: {int(total_loss_c):10d}")
     logger.info(f"Section D - Other:      {total_section_d:5d} | Gain: {int(total_gain_d):10d} | Loss: {int(total_loss_d):10d}")
     logger.info("-" * 50)
-    logger.info(f"TOTAL: {total_section_a + total_section_d:5d} | Gain: {int(total_gain_a + total_gain_d):10d} | Loss: {int(total_loss_a + total_loss_d):10d}")
+    logger.info(f"TOTAL: {total_section_a + total_section_c + total_section_d:5d} | Gain: {int(total_gain_a + total_gain_c + total_gain_d):10d} | Loss: {int(total_loss_a + total_loss_c + total_loss_d):10d}")
     logger.info(f"Blanketts: {num_blanketts}")
     logger.info("=" * 50)
