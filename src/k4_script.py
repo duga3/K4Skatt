@@ -418,19 +418,24 @@ def main():
         
         processed_trades = process_trades(trades_in_sek)
         
-        # Load and combine additional trades if provided
-        if args.additional_trades:
-            additional_trades = load_additional_trades(args.additional_trades)
-            processed_trades = pd.concat([processed_trades, additional_trades], ignore_index=True)
-            logger.info(f"Total trades: {len(processed_trades)} (IB + additional)")
-        else:
-            logger.info(f"Processed {len(processed_trades)} IB trades")
+        logger.info(f"Processed {len(processed_trades)} IB trades")
         
         processed_trades.sort_values('Beteckning', inplace=True)
         grouped_trades = group_partial_executions(processed_trades)
         
         print_summary(processed_trades, "Original")
         print_summary(grouped_trades, "Grouped")
+        
+        # Load and combine additional trades if provided (after grouping to preserve order)
+        if args.additional_trades:
+            additional_trades = load_additional_trades(args.additional_trades)
+            # Print summary of additional trades
+            logger.info("Additional trades summary:")
+            print_summary(additional_trades, "Additional")
+            grouped_trades = pd.concat([grouped_trades, additional_trades], ignore_index=True)
+            logger.info(f"Total trades: {len(grouped_trades)} (IB + additional)")
+            # Print final summary with additional trades included
+            print_summary(grouped_trades, "Grouped (with Additional)")
         
         # Save CSV outputs
         output_dir = 'output'
