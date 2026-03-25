@@ -354,17 +354,34 @@ def group_partial_executions(processed_df: pd.DataFrame) -> pd.DataFrame:
 
 def print_summary(result_df: pd.DataFrame, report_type: str = "Summary"):
     """Print summary statistics of the processing results"""
-    total_gain = result_df['Vinst'].sum()
-    total_loss = result_df['Förlust'].sum()
+    total_försäljningspris = result_df['Försäljningspris'].sum()
+    total_omkostnadsbelopp = result_df['Omkostnadsbelopp'].sum()
+    total_vinst = result_df['Vinst'].sum()
+    total_förlust = result_df['Förlust'].sum()
     total_diff = result_df['Diff vs IBKR'].sum()
-    net_result = total_gain - total_loss
+    net_result = total_vinst - total_förlust
+    
+    logger.info("")
+    logger.info("=" * 70)
+    logger.info(f"{report_type.upper()}")
+    logger.info("=" * 70)
+    logger.info(f"Instruments: {len(result_df)}")
     
     if 'GroupInfo' in result_df.columns:
         grouped_instruments_count = result_df['GroupInfo'].notna().sum()
         if grouped_instruments_count > 0:
-            logger.info(f"Grouped {grouped_instruments_count} instruments")
+            logger.info(f"Grouped:     {grouped_instruments_count}")
     
-    logger.info(f"{report_type}: Gain {total_gain:.2f}, Loss {total_loss:.2f}, Net {net_result:.2f}, Diff {total_diff:.2f}")
+    logger.info("-" * 70)
+    logger.info(f"Försäljningspris:  {int(total_försäljningspris):>15}")
+    logger.info(f"Omkostnadsbelopp:  {int(total_omkostnadsbelopp):>15}")
+    logger.info("-" * 70)
+    logger.info(f"Vinst:             {int(total_vinst):>15}")
+    logger.info(f"Förlust:           {int(total_förlust):>15}")
+    logger.info(f"Net:               {int(net_result):>15}")
+    logger.info(f"Diff vs IBKR:      {total_diff:>15.2f}")
+    logger.info("=" * 70)
+    logger.info("")
 
 def create_default_config(output_path: str) -> None:
     """Create a default config file if none exists"""
@@ -389,7 +406,7 @@ def main():
     args = parse_arguments()
     
     if args.verbose:
-        logger.setLevel(logging.DEBUG)
+        logging.getLogger().setLevel(logging.DEBUG)
     
     # Create default config if requested
     if args.create_config:
