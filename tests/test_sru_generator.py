@@ -38,6 +38,7 @@ class TestSRUGenerator(unittest.TestCase):
             # Section A
             {
                 'Symbol': 'AAPL',
+                'UnderlyingSymbol': 'AAPL',
                 'Beteckning': 'Apple Inc.',
                 'Antal': 10,
                 'Försäljningspris': 15000,
@@ -47,6 +48,7 @@ class TestSRUGenerator(unittest.TestCase):
             },
             {
                 'Symbol': 'GOOGL',
+                'UnderlyingSymbol': 'GOOGL',
                 'Beteckning': 'Alphabet Inc.',
                 'Antal': 5,
                 'Försäljningspris': 10000,
@@ -57,6 +59,7 @@ class TestSRUGenerator(unittest.TestCase):
             # Section D
             {
                 'Symbol': 'BTC',
+                'UnderlyingSymbol': 'BTC',
                 'Beteckning': 'Bitcoin',
                 'Antal': 2,
                 'Försäljningspris': 20000,
@@ -66,6 +69,7 @@ class TestSRUGenerator(unittest.TestCase):
             },
             {
                 'Symbol': 'ETH',
+                'UnderlyingSymbol': 'ETH',
                 'Beteckning': 'Ethereum',
                 'Antal': 3,
                 'Försäljningspris': 9000,
@@ -92,6 +96,7 @@ class TestSRUGenerator(unittest.TestCase):
         for i in range(10):
             self.multi_page_data = pd.concat([self.multi_page_data, pd.DataFrame([{
                 'Symbol': 'BTC',
+                'UnderlyingSymbol': 'BTC',
                 'Beteckning': f'Bitcoin Trade {i+1}',
                 'Antal': 2,
                 'Försäljningspris': 20000,
@@ -104,6 +109,7 @@ class TestSRUGenerator(unittest.TestCase):
         self.long_beteckning_data = pd.DataFrame([
             {
                 'Symbol': 'AAPL',
+                'UnderlyingSymbol': 'AAPL',
                 'Beteckning': 'Apple Inc. Very Long Description That Tests The Eighty Character Limit For Beteckning Field',
                 'Antal': 10,
                 'Försäljningspris': 15000,
@@ -117,6 +123,7 @@ class TestSRUGenerator(unittest.TestCase):
         self.single_section_a_data = pd.DataFrame([
             {
                 'Symbol': 'AAPL',
+                'UnderlyingSymbol': 'AAPL',
                 'Beteckning': 'Apple Inc.',
                 'Antal': 10,
                 'Försäljningspris': 15000,
@@ -130,6 +137,7 @@ class TestSRUGenerator(unittest.TestCase):
         self.single_section_d_data = pd.DataFrame([
             {
                 'Symbol': 'BTC',
+                'UnderlyingSymbol': 'BTC',
                 'Beteckning': 'Bitcoin',
                 'Antal': 2,
                 'Försäljningspris': 20000,
@@ -251,6 +259,43 @@ class TestSRUGenerator(unittest.TestCase):
         self.assertIn("#BLANKETTSLUT\n", content)
         self.assertIn("#FIL_SLUT\n", content)
 
+    def test_generate_blankett_sru_file_section_c(self):
+        """Test BLANKETTER.SRU file generation with Section C differentiation"""
+        section_c_data = pd.DataFrame([
+            {
+                'Symbol': '6E',
+                'UnderlyingSymbol': '6E',
+                'Beteckning': 'EUR Future',
+                'Antal': 1,
+                'Försäljningspris': 5000,
+                'Omkostnadsbelopp': 4000,
+                'Vinst': 1000,
+                'Förlust': 0
+            }
+        ])
+
+        blanketter_path = os.path.join(self.temp_dir, "BLANKETTER.SRU")
+        generate_blankett_sru_file(section_c_data, self.config, blanketter_path)
+
+        self.assertTrue(os.path.exists(blanketter_path))
+
+        with open(blanketter_path, 'r', encoding='utf-8') as f:
+            content = f.readlines()
+
+        # Verify Section C entry
+        self.assertIn("#UPPGIFT 3310 1\n", content)
+        self.assertIn("#UPPGIFT 3311 EUR Future\n", content)
+        self.assertIn("#UPPGIFT 3312 5000\n", content)
+        self.assertIn("#UPPGIFT 3313 4000\n", content)
+        self.assertIn("#UPPGIFT 3314 1000\n", content)
+        self.assertIn("#UPPGIFT 3315 0\n", content)
+
+        # Verify Section C summary
+        self.assertIn("#UPPGIFT 3400 5000\n", content)
+        self.assertIn("#UPPGIFT 3401 4000\n", content)
+        self.assertIn("#UPPGIFT 3403 1000\n", content)
+        self.assertIn("#UPPGIFT 3404 0\n", content)
+
     def test_generate_sru_files(self):
         """Test generation of both INFO.SRU and BLANKETTER.SRU files"""
         generate_sru_files(self.mock_data, self.config, self.temp_dir)
@@ -263,7 +308,7 @@ class TestSRUGenerator(unittest.TestCase):
 
     def test_empty_data(self):
         """Test handling of empty DataFrame"""
-        empty_data = pd.DataFrame(columns=['Symbol', 'Beteckning', 'Antal', 'Försäljningspris', 'Omkostnadsbelopp', 'Vinst', 'Förlust'])
+        empty_data = pd.DataFrame(columns=['Symbol', 'UnderlyingSymbol', 'Beteckning', 'Antal', 'Försäljningspris', 'Omkostnadsbelopp', 'Vinst', 'Förlust'])
         blanketter_path = os.path.join(self.temp_dir, "BLANKETTER.SRU")
         generate_blankett_sru_file(empty_data, self.config, blanketter_path)
         
