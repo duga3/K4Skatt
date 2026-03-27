@@ -1,4 +1,5 @@
 import pandas as pd
+import numpy as np
 import os
 import argparse
 import logging
@@ -147,7 +148,7 @@ def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbel
     """
     net_result = forsaljningspris - omkostnadsbelopp
     return {
-        'Antal': int(trade_row['Antal']),
+        'Antal': trade_row['Antal'],
         'Beteckning': trade_row['Beteckning'],
         'Symbol': trade_row.get('Symbol', ''),
         'UnderlyingSymbol': trade_row.get('UnderlyingSymbol', ''),
@@ -352,6 +353,7 @@ def group_partial_executions(processed_df: pd.DataFrame) -> pd.DataFrame:
     # Group by instrument and count trades per group
     trades_per_instrument = processed_df.groupby('Beteckning').size()
     grouped_df = processed_df.groupby('Beteckning', as_index=False).agg(aggregation_dict)
+    grouped_df['Antal'] = np.ceil(grouped_df['Antal']).astype(int) # Round up to handle fractional shares
     
     # Add GroupInfo for multi-trade instruments
     grouped_df['GroupInfo'] = trades_per_instrument.apply(lambda count: f"Grouped {count} trades" if count > 1 else None).values
