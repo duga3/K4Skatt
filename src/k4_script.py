@@ -136,7 +136,7 @@ def convert_to_sek(trades_df: pd.DataFrame) -> pd.DataFrame:
     converted_df['Proceeds'] = (converted_df['Proceeds'] * converted_df['FX']).round().astype(int)
     converted_df['CostBasis'] = (converted_df['CostBasis'] * converted_df['FX']).round().astype(int)
 
-    converted_df['IBKRPnL'] = (converted_df['FifoPnlRealized'] * converted_df['FX']).round(2)
+    converted_df['IBKRPnL'] = converted_df['FifoPnlRealized'] * converted_df['FX']
     return converted_df
 
 def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbelopp: int) -> Dict:
@@ -155,8 +155,8 @@ def make_trade_result(trade_row: pd.Series, forsaljningspris: int, omkostnadsbel
         'Omkostnadsbelopp': int(omkostnadsbelopp),
         'Vinst': int(max(0, net_result)),
         'Förlust': int(max(0, -net_result)),
-        'IBKRPnL': float(trade_row.get('IBKRPnL', 0.0)),
-        'Diff vs IBKR': round(net_result - float(trade_row.get('IBKRPnL', 0.0)), 2)
+        'IBKRPnL': trade_row.get('IBKRPnL', 0.0),
+        'Diff vs IBKR': net_result - trade_row.get('IBKRPnL', 0.0)
     }
 
 def process_standard_trade(trade_row: pd.Series) -> Dict:
@@ -352,9 +352,6 @@ def group_partial_executions(processed_df: pd.DataFrame) -> pd.DataFrame:
     # Group by instrument and count trades per group
     trades_per_instrument = processed_df.groupby('Beteckning').size()
     grouped_df = processed_df.groupby('Beteckning', as_index=False).agg(aggregation_dict)
-    
-    # Round Diff vs IBKR to 2 decimal places
-    grouped_df['Diff vs IBKR'] = grouped_df['Diff vs IBKR'].round(2)
     
     # Add GroupInfo for multi-trade instruments
     grouped_df['GroupInfo'] = trades_per_instrument.apply(lambda count: f"Grouped {count} trades" if count > 1 else None).values
