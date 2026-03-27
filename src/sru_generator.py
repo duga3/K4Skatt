@@ -94,7 +94,7 @@ def generate_info_sru_file(config: Dict, output_dir: str) -> None:
         "#MEDIELEV_SLUT"
     ]
     
-    with open(info_path, 'w', encoding='utf-8') as f:
+    with open(info_path, 'w', encoding="iso-8859-1") as f:
         f.write("\n".join(info_lines) + "\n")
             
     logger.info(f"INFO.SRU file generated: {info_path}")
@@ -212,7 +212,7 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     
     sru_lines.append("#FIL_SLUT")
     
-    with open(output_path, 'w', encoding='utf-8') as f:
+    with open(output_path, 'w', encoding="iso-8859-1") as f:
         f.write('\n'.join(sru_lines) + '\n')
     
     # Log summary
