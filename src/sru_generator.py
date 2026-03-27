@@ -32,6 +32,11 @@ MAX_TRADES_PER_SECTION_D = 7
 # Valid month codes for futures contracts
 VALID_FUTURES_MONTH_CODES = {'F', 'G', 'H', 'J', 'K', 'M', 'N', 'Q', 'U', 'V', 'X', 'Z'}
 
+# Summary tags for each section
+SUMMARY_TAGS_A = [('3300', 'Försäljningspris'), ('3301', 'Omkostnadsbelopp'), ('3304', 'Vinst'), ('3305', 'Förlust')]
+SUMMARY_TAGS_C = [('3400', 'Försäljningspris'), ('3401', 'Omkostnadsbelopp'), ('3403', 'Vinst'), ('3404', 'Förlust')]
+SUMMARY_TAGS_D = [('3500', 'Försäljningspris'), ('3501', 'Omkostnadsbelopp'), ('3503', 'Vinst'), ('3504', 'Förlust')]
+
 def extract_futures_symbol(symbol: str) -> str:
     if symbol is None or (isinstance(symbol, float) and pd.isna(symbol)):
         return symbol
@@ -145,15 +150,15 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
     # DEBUG: Print Section C/D trades summary
     if not section_c_data.empty:
         logger.info(f"Section C Trades: {len(section_c_data)} trades identified")
-        c_symbols = section_c_data['UnderlyingSymbol'].unique()
-        logger.info(f"Section C Instruments: {', '.join(sorted(c_symbols))}")
+        c_symbols = sorted(set(section_c_data['UnderlyingSymbol']))
+        logger.info(f"Section C Instruments: {', '.join(c_symbols)}")
     else:
         logger.info("Section C Trades: No trades identified for Section C")
 
     if not section_d_data.empty:
         logger.info(f"Section D Trades: {len(section_d_data)} trades identified")
-        d_symbols = section_d_data['UnderlyingSymbol'].unique()
-        logger.info(f"Section D Instruments: {', '.join(sorted(d_symbols))}")
+        d_symbols = sorted(set(section_d_data['UnderlyingSymbol']))
+        logger.info(f"Section D Instruments: {', '.join(d_symbols)}")
     else:
         logger.info("Section D Trades: No trades identified for Section D")
     
@@ -181,10 +186,8 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
         blankett_a = section_a_data.iloc[a_start:a_end] if a_start < total_section_a else pd.DataFrame()
         
         if not blankett_a.empty:
-            summary_tags_a = [('3300', 'Försäljningspris'), ('3301', 'Omkostnadsbelopp'), 
-                             ('3304', 'Vinst'), ('3305', 'Förlust')]
             append_section_data(sru_lines, blankett_a, base_prefix='31', 
-                              index_offset=0, summary_tags=summary_tags_a)
+                              index_offset=0, summary_tags=SUMMARY_TAGS_A)
         
         # Section C data
         c_start = blankett_index * MAX_TRADES_PER_SECTION_C
@@ -192,10 +195,8 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
         blankett_c = section_c_data.iloc[c_start:c_end] if c_start < total_section_c else pd.DataFrame()
 
         if not blankett_c.empty:
-            summary_tags_c = [('3400', 'Försäljningspris'), ('3401', 'Omkostnadsbelopp'),
-                              ('3403', 'Vinst'), ('3404', 'Förlust')]
             append_section_data(sru_lines, blankett_c, base_prefix='33',
-                              index_offset=1, summary_tags=summary_tags_c)
+                              index_offset=1, summary_tags=SUMMARY_TAGS_C)
 
         # Section D data
         d_start = blankett_index * MAX_TRADES_PER_SECTION_D
@@ -203,10 +204,8 @@ def generate_blankett_sru_file(result_data: pd.DataFrame, config: Dict, output_p
         blankett_d = section_d_data.iloc[d_start:d_end] if d_start < total_section_d else pd.DataFrame()
         
         if not blankett_d.empty:
-            summary_tags_d = [('3500', 'Försäljningspris'), ('3501', 'Omkostnadsbelopp'), 
-                              ('3503', 'Vinst'), ('3504', 'Förlust')]
             append_section_data(sru_lines, blankett_d, base_prefix='34', 
-                              index_offset=1, summary_tags=summary_tags_d)
+                              index_offset=1, summary_tags=SUMMARY_TAGS_D)
         
         sru_lines.append(format_sru_line("7014", str(blankett_index + 1)))
         sru_lines.append("#BLANKETTSLUT")
