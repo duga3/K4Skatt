@@ -23,11 +23,6 @@ DEFAULT_CONFIG = {
         "postort": "Staden",
         "email": "example@email.com",
         "inkomstar": str(datetime.now().year - 1)
-    },
-    "fx_rates": {
-        "USD": 10.5,
-        "CHF": 12.2,
-        "EUR": 10.0
     }
 }
 
@@ -59,7 +54,8 @@ def load_trades(file_path: str) -> Optional[pd.DataFrame]:
                 'Notes/Codes': str,
                 'AssetClass': str,
                 'Buy/Sell': str,
-                'Put/Call': str
+                'Put/Call': str,
+                'FXRateToBase': float
             }
         )
     except Exception as exc:
@@ -70,7 +66,8 @@ def load_trades(file_path: str) -> Optional[pd.DataFrame]:
     required_cols = {
         "DateTime", "Open/CloseIndicator", "FifoPnlRealized", "Description", "Quantity",
         "CostBasis", "Proceeds", "CurrencyPrimary", "Buy/Sell",
-        "Notes/Codes", "AssetClass", "Symbol", "UnderlyingSymbol", "IBCommission", 'Put/Call'
+        "Notes/Codes", "AssetClass", "Symbol", "UnderlyingSymbol", "IBCommission", 'Put/Call',
+        'FXRateToBase'
     }
     missing_cols = required_cols - set(trades_df.columns)
 
@@ -115,16 +112,21 @@ def load_additional_trades(file_path: str) -> pd.DataFrame:
         logger.error(f"Error loading additional trades: {e}")
         raise
 
-def convert_to_sek(trades_df: pd.DataFrame, exchange_rates: Dict[str, float]) -> pd.DataFrame:
+def convert_to_sek(trades_df: pd.DataFrame) -> pd.DataFrame:
+    """Convert trade amounts to SEK using the FXRateToBase column from IBKR data.
+    
+    Each trade has its own FX rate at the time of execution, ensuring accurate
+    currency conversion without approximation from static config rates.
+    """
     converted_df = trades_df.copy()
-    # Handle SEK automatically with conversion factor of 1.0
-    converted_df['FX'] = converted_df['CurrencyPrimary'].apply(
-        lambda currency: 1.0 if currency == 'SEK' else exchange_rates.get(currency)
-    )
-
-    missing_currencies = converted_df[converted_df['FX'].isna()]['CurrencyPrimary'].unique()
-    if len(missing_currencies) > 0:
-        raise ValueError(f"Missing FX rates for: {', '.join(missing_currencies)}")
+    
+    # Use per-trade FX rate from IBKR data
+    converted_df['FX'] = converted_df['FXRateToBase']
+    
+    # Validate that FX rates are present and valid
+    invalid_fx = converted_df[converted_df['FX'].isna()]
+    if len(invalid_fx) > 0:
+        logger.warning(f"Found {len(invalid_fx)} trades with invalid FX rates")
 
     # Commission: positive = rebate (we got paid), negative = cost (we paid)
     # Keep the sign so rebates reduce omkostnadsbelopp
@@ -436,7 +438,7 @@ def main():
         if trades_df is None:
             return
             
-        trades_in_sek = convert_to_sek(trades_df, config['fx_rates'])
+        trades_in_sek = convert_to_sek(trades_df)
         
         processed_trades = process_trades(trades_in_sek)
         
