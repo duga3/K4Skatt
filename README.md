@@ -59,6 +59,7 @@ pip install pandas
      - `Cost Basis`
      - `Proceeds`
      - `Currency`
+     - `FXRateToBase`
      - `IB Commission`
      - `Realized P/L`
      - `Notes/Codes`
@@ -96,18 +97,12 @@ Here’s the expected structure:
         "postort": "Staden",
         "email": "example@email.com",
         "inkomstar": "2025"
-    },
-    "fx_rates": {
-        "USD": 10.5,
-        "CHF": 12.2,
-        "EUR": 10.0
     }
 }
 ```
 
 - **Personal Information**: Update with your details (e.g., `personnummer`, `namn`, etc.).
-- **`inkomstar`**: Set to the tax year you’re reporting. Defaults to the previous year if not specified.
-- **`fx_rates`**: Provide exchange rates (in SEK) for all currencies in your trade data **except SEK**, which is handled automatically with a conversion factor of 1.0. Ensure every non-SEK currency present in your trades is included to avoid errors. You can get the official rates from [Riksbankens website](https://www.riksbank.se/sv/statistik/rantor-och-valutakurser/sok-rantor-och-valutakurser/).
+- **`inkomstar`**: Set to the tax year you’re reporting.
 
 ---
 
