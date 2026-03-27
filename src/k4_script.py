@@ -3,7 +3,7 @@ import os
 import argparse
 import logging
 import json
-from typing import Dict, Optional, Set
+from typing import Dict, Optional
 
 from datetime import datetime
 
@@ -199,14 +199,16 @@ def process_standard_trade(trade_row: pd.Series) -> Dict:
     
     return make_trade_result(trade_row, forsaljningspris, omkostnadsbelopp)
 
-def find_related_options(trades_df: pd.DataFrame, trade_date, symbol, exercise_assigned_indices: Set) -> pd.DataFrame:
+def find_related_options(trades_df: pd.DataFrame, trade_date, symbol) -> pd.DataFrame:
     """Find related options on the same date with exercise/assignment codes"""
     mask = (trades_df['TradeDate'] == trade_date) & \
            (trades_df['AssetClass'] == 'OPT') & \
            (trades_df['UnderlyingSymbol'] == symbol) & \
-           (trades_df.index.isin(exercise_assigned_indices))
+           (trades_df['Notes/Codes'].isin(['Ex', 'A']))
     
-    return trades_df[mask]
+    result = trades_df[mask]
+    logger.debug(f"  find_related_options({symbol}, {trade_date}): filtered to {len(result)} options")
+    return result
 
 def get_option_premium(related_options: pd.DataFrame, buy_sell: str, put_call: str, notes_code: str) -> float:
     """Extract the option premium from related options trades."""
@@ -228,6 +230,7 @@ def handle_long_call_exercise(stock_trade_row: pd.Series, related_options: pd.Da
     stock_cost = abs(stock_trade_row['Proceeds'])
     commission = stock_trade_row['IBCommission']
     omkostnadsbelopp = stock_cost + option_premium - commission
+    logger.debug(f"  handle_long_call_exercise: premium={option_premium}, stock_cost={stock_cost}, commission={commission}, result={omkostnadsbelopp}")
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_long_put_exercise(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
@@ -240,6 +243,7 @@ def handle_long_put_exercise(stock_trade_row: pd.Series, related_options: pd.Dat
     stock_cost = abs(stock_trade_row['CostBasis'])
     commission = stock_trade_row['IBCommission']
     omkostnadsbelopp = stock_cost + option_premium - commission
+    logger.debug(f"  handle_long_put_exercise: premium={option_premium}, stock_cost={stock_cost}, commission={commission}, result={omkostnadsbelopp}")
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_short_call_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
@@ -252,6 +256,7 @@ def handle_short_call_assignment(stock_trade_row: pd.Series, related_options: pd
     stock_cost = abs(stock_trade_row['CostBasis'])
     commission = stock_trade_row['IBCommission']
     omkostnadsbelopp = stock_cost - option_premium - commission
+    logger.debug(f"  handle_short_call_assignment: premium={option_premium}, stock_cost={stock_cost}, commission={commission}, result={omkostnadsbelopp}")
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
 def handle_short_put_assignment(stock_trade_row: pd.Series, related_options: pd.DataFrame) -> Dict:
@@ -264,24 +269,31 @@ def handle_short_put_assignment(stock_trade_row: pd.Series, related_options: pd.
     stock_cost = abs(stock_trade_row['Proceeds'])
     commission = stock_trade_row['IBCommission']
     omkostnadsbelopp = stock_cost - option_premium - commission
+    logger.debug(f"  handle_short_put_assignment: premium={option_premium}, stock_cost={stock_cost}, commission={commission}, result={omkostnadsbelopp}")
     return make_trade_result(stock_trade_row, forsaljningspris, omkostnadsbelopp)
 
-def process_exercise_assignment(stock_trade_row: pd.Series, trades_df: pd.DataFrame, exercise_assigned_indices: Set) -> Dict:
+def process_exercise_assignment(stock_trade_row: pd.Series, trades_df: pd.DataFrame) -> Dict:
     """Process stock trades resulting from option exercise or assignment"""
     trade_date = stock_trade_row['TradeDate']
     
     symbol = stock_trade_row['Symbol']
-    related_options = find_related_options(trades_df, trade_date, symbol,exercise_assigned_indices)
+    related_options = find_related_options(trades_df, trade_date, symbol)
+    logger.debug(f"Exercise/assignment: {symbol} {stock_trade_row['Buy/Sell']} ({stock_trade_row['Notes/Codes']}), found {len(related_options)} related options")
     
     if stock_trade_row['Buy/Sell'] == 'BUY' and 'Ex' in stock_trade_row['Notes/Codes']:
+        logger.debug(f"  → Long call exercise: attempting to find SELL C Ex option")
         return handle_long_call_exercise(stock_trade_row, related_options)
     elif stock_trade_row['Buy/Sell'] == 'SELL' and 'Ex' in stock_trade_row['Notes/Codes']:
+        logger.debug(f"  → Long put exercise: attempting to find SELL P Ex option")
         return handle_long_put_exercise(stock_trade_row, related_options)
     elif stock_trade_row['Buy/Sell'] == 'SELL' and 'A' in stock_trade_row['Notes/Codes']:
+        logger.debug(f"  → Short call assignment: attempting to find BUY C A option")
         return handle_short_call_assignment(stock_trade_row, related_options)
     elif stock_trade_row['Buy/Sell'] == 'BUY' and 'A' in stock_trade_row['Notes/Codes']:
+        logger.debug(f"  → Short put assignment: attempting to find BUY P A option")
         return handle_short_put_assignment(stock_trade_row, related_options)
     else:
+        logger.debug(f"  → Fallback to standard trade processing")
         return process_standard_trade(stock_trade_row)
 
 def process_trades(trades_df: pd.DataFrame) -> pd.DataFrame:
@@ -289,26 +301,18 @@ def process_trades(trades_df: pd.DataFrame) -> pd.DataFrame:
     trades_df['Antal'] = trades_df['Quantity'].abs()
     trades_df['Beteckning'] = trades_df['Description']
     
-    exercise_assigned_mask = trades_df['Notes/Codes'].isin(['Ex', 'A'])
-    exercise_assigned_indices = set(trades_df[exercise_assigned_mask].index)
-    
     is_closing_trade = trades_df['Open/CloseIndicator'] == 'C'
     has_profit_or_loss = trades_df['IBKRPnL'] != 0
-    is_stock_exercise_or_assignment = (trades_df['AssetClass'] == 'STK') & exercise_assigned_mask
     
-    trades_to_report = trades_df[is_closing_trade & (has_profit_or_loss | is_stock_exercise_or_assignment)].copy()
-    
-    # Skip options that were exercised/assigned (they're handled with stock trades)
-    skip_exercised_options_mask = (trades_to_report['AssetClass'] == 'OPT') & \
-                                   (trades_to_report.index.isin(exercise_assigned_indices))
-    trades_to_report = trades_to_report[~skip_exercised_options_mask]
+    trades_to_report = trades_df[is_closing_trade & has_profit_or_loss].copy()
     
     processed_results = []
     for trade_idx, trade_row in trades_to_report.iterrows():
         logger.debug(f"Processing trade {trade_idx}: Symbol={trade_row['Symbol']}, Description={trade_row['Description']}, AssetClass={trade_row['AssetClass']}, Notes/Codes={trade_row['Notes/Codes']}")
         try:
-            if trade_row['AssetClass'] == 'STK' and trade_idx in exercise_assigned_indices:
-                trade_result = process_exercise_assignment(trade_row, trades_df, exercise_assigned_indices)
+            if trade_row['AssetClass'] == 'STK' and trade_row['Notes/Codes'] in ['Ex', 'A']:
+                logger.debug(f"Exercise/assignment stock trade {trade_idx}: {trade_row['Symbol']} {trade_row['Buy/Sell']} {trade_row['Notes/Codes']}")
+                trade_result = process_exercise_assignment(trade_row, trades_df)
             else:
                 trade_result = process_standard_trade(trade_row)
             
