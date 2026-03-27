@@ -471,7 +471,7 @@ def main():
         input_base_name = os.path.splitext(os.path.basename(args.input_file))[0]
         
         output_file = os.path.join(output_dir, f"{input_base_name}_k4.csv")
-        processed_trades.to_csv(output_file, sep=';', decimal=',', index=False)
+        processed_trades.to_csv(output_file, sep=';', decimal=',', float_format="%.2f", index=False)
         logger.info(f"Saved: {output_file}")
         
         grouped_output_file = os.path.join(output_dir, f"{input_base_name}_k4_grouped.csv")
@@ -483,7 +483,7 @@ def main():
             output_columns.insert(notes_column_index + 1, 'GroupInfo')
             grouped_trades = grouped_trades[output_columns]
         
-        grouped_trades.to_csv(grouped_output_file, sep=';', decimal=',', index=False)
+        grouped_trades.to_csv(grouped_output_file, sep=';', decimal=',', float_format="%.2f", index=False)
         logger.info(f"Saved: {grouped_output_file}")
         
         # Generate SRU files (if not disabled)
