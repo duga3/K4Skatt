@@ -368,7 +368,8 @@ def print_summary(result_df: pd.DataFrame, report_type: str = "Summary"):
     total_omkostnadsbelopp = result_df['Omkostnadsbelopp'].sum()
     total_vinst = result_df['Vinst'].sum()
     total_förlust = result_df['Förlust'].sum()
-    total_diff = result_df['Diff vs IBKR'].sum()
+    total_diff_sum = result_df['Diff vs IBKR'].sum()
+    total_diff_std = result_df['Diff vs IBKR'].std()
     net_result = total_vinst - total_förlust
     
     logger.info("")
@@ -389,7 +390,8 @@ def print_summary(result_df: pd.DataFrame, report_type: str = "Summary"):
     logger.info(f"Vinst:             {int(total_vinst):>15}")
     logger.info(f"Förlust:           {int(total_förlust):>15}")
     logger.info(f"Net:               {int(net_result):>15}")
-    logger.info(f"Diff vs IBKR:      {total_diff:>15.2f}")
+    logger.info(f"Diff vs IBKR Sum:  {total_diff_sum:>15.2f}")
+    logger.info(f"Diff vs IBKR Std:  {total_diff_std:>15.2f}")
     logger.info("=" * 70)
     logger.info("")
 
